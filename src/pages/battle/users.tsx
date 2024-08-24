@@ -29,7 +29,7 @@ const Users = ({ allUsers }: InferGetServerSidePropsType<typeof getServerSidePro
     let sortedPlayers = [...allUsers];
 
     if (sortBy === 'overallrank') {
-      sortedPlayers.sort((a, b) => sortDir === 'desc' ? a.score - b.score : b.score - a.score);
+      sortedPlayers.sort((a, b) => sortDir === 'desc' ? b.rank - a.rank : a.rank - b.rank);
     } else if (sortBy === 'gold') {
       sortedPlayers.sort((a, b) => sortDir === 'desc' ? Number(a.gold) - Number(b.gold) : Number(b.gold) - Number(a.gold));
     } else if (sortBy === 'population') {
@@ -158,21 +158,6 @@ const Users = ({ allUsers }: InferGetServerSidePropsType<typeof getServerSidePro
   );
 };
 
-const calculateUserScore = (user) => {
-  const unitScore = user.units
-    ? user.units.map((unit) => unit.quantity).reduce((a, b) => a + b, 0)
-    : 0;
-  const itemScore = user.items
-    ? user.items.map((item) => item.quantity * (item.level * 0.1)).reduce((a, b) => a + b, 0)
-    : 0;
-
-  return 0.7 * user.experience +
-    0.2 * user.fort_level +
-    0.1 * user.house_level +
-    0.004 * unitScore +
-    0.003 * itemScore;
-};
-
 
 export const getServerSideProps = async () => {
   try {
@@ -185,8 +170,7 @@ export const getServerSideProps = async () => {
       user.population = population;
       user.isOnline = ((nowTimestamp - lastActiveTimestamp) / (1000 * 60) <= 15);
     });
-    allUsers.forEach(user => user.score = calculateUserScore(user));
-    allUsers.sort((a, b) => b.score - a.score);
+    allUsers.sort((a, b) => a.rank - b.rank);
     return { props: { allUsers } };
   } catch (error) {
     console.error('Error fetching user data:', error);

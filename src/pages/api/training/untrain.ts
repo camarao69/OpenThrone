@@ -19,7 +19,14 @@ const handler = async (req: NextApiRequest, res: NextApiResponse) => {
 
   try {
     const totalRefund = calculateTotalCost(units, uModel) * 0.75;
+    if(totalRefund <= 0) return res.status(400).json({ error: 'Invalid units quantity' });
     const userUnitsMap = new Map((user.units as PlayerUnit[]).map(u => [`${u.type}_${u.level}`, u]));
+    // Add the number of units to "CITIZENS"
+    const citizenUnit = user.units.find((u) => u.type === 'CITIZEN');
+    citizenUnit.quantity += units.reduce(
+      (acc, unit) => acc + unit.quantity,
+      0
+    );
     const updatedUnitsMap = updateUnitsMap(userUnitsMap as Map<string, PlayerUnit>, units, false);
     const updatedUnitsArray = Array.from(updatedUnitsMap.values());
 
