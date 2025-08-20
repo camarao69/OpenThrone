@@ -1,549 +1,433 @@
-import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import React, { useEffect, useState } from 'react';
+import {
+  Tabs,
+  SimpleGrid,
+  Text,
+  Space,
+  Flex,
+  rem,
+} from '@mantine/core';
+import {
+  BiCoinStack,
+  BiLineChart,
+  BiMoney,
+  BiSolidBank,
+  BiUserCircle,
+} from 'react-icons/bi';
 
-import { alertService } from '@/services';
+import MainArea from '@/components/MainArea';
 import { useUser } from '@/context/users';
-import Alert from '@/components/alert';
-import toLocale, { stringifyObj } from '@/utils/numberFormatting';
-import { Chip, Group, Paper, Table, Tabs, SimpleGrid, Text, Space, NumberInput, rem, ThemeIcon, Button, Flex, Divider } from '@mantine/core';
-import { BiCoinStack, BiMoney, BiMoneyWithdraw, BiSolidBank } from "react-icons/bi";
-import classes from './[tab].module.css'
-import user from '@/pages/messaging/compose/[user]';
-import { EconomyUpgrades } from '@/constants';
+import classes from './[tab].module.css'; // Keep your styling
 
-const Bank = (props) => {
+// Sub-components
+import BankDepositWithdraw from '@/components/BankDepositWithdraw';
+import BankHistoryFilters from '@/components/BankHistoryFilters';
+import BankHistoryTable from '@/components/BankHistoryTable';
+import { EconomyUpgrades } from '@/constants';
+import { useLocalStorage } from '@mantine/hooks';
+import { logError } from '@/utils/logger';
+import BankCard from '@/components/StatCard';
+import ContentCard from '@/components/ContentCard';
+
+const defaultFilters = {
+  deposits: true,
+  withdraws: true,
+  war_spoils: true,
+  transfers: true,
+  sale: true,
+  training: true,
+  recruitment: true,
+  economy: true,
+  fortification: true,
+  daily: true,
+};
+export default function Bank(props) {
   const tab = usePathname()?.split('/')[3];
+  const router = useRouter();
+  const [filters, setFilters] = useLocalStorage({
+    key: 'bankHistoryFilters',
+    defaultValue: defaultFilters,
+  });
   const { user, forceUpdate } = useUser();
-  const [depositAmount, setDepositAmount] = useState(BigInt(0));
-  const [withdrawAmount, setWithdrawAmount] = useState(BigInt(0));
-  const [bankHistory, setBankHistory] = useState([]);
   const currentPage = tab || 'deposit';
-  const [citizenUnit, setCitizenUnit] = useState(0);
+
+  // State relevant to deposit & withdraw
+  // 1) Separate state for deposit/withdraw limited history:
+  const [depositWithdrawHistory, setDepositWithdrawHistory] = useState([]);
+  // 2) Separate state for the *filtered* history tab:
+  const [filteredBankHistory, setFilteredBankHistory] = useState([]);
   const [despositsAvailable, setDepositsAvailable] = useState(0);
   const [depositsMax, setDepositsMax] = useState(0);
-  const router = useRouter();
+  const [nextDepositAvailable, setNextDepositAvailable] = useState({
+    hours: 0,
+    minutes: 0,
+    seconds: 0,
+  });
   const [message, setMessage] = useState('');
   const [colorScheme, setColorScheme] = useState('ELF');
-  const [nextDepositAvailable, setNextDepositAvailable] = useState({ hours: 0, minutes: 0, seconds: 0 });
-  const [depositError, setDepositError] = useState('');
-  const [withdrawError, setWithdrawError] = useState('');
+  const [citizenUnit, setCitizenUnit] = useState(0);
+  const searchParams = useSearchParams();
+  const page = Number(searchParams.get('page')) || 0; //todo add pagination
+  const limit = Number(searchParams.get('limit')) || 10;
+  const [totalPages, setTotalPages] = useState(0);
 
-  const [filters, setFilters] = useState({
-    deposits: true,
-    withdraws: true,
-    war_spoils: true,
-    transfers: true,
-    sale:true
-  });
+  function handleRowsPerPageChange(option: number): void {
+    router.push(`/structures/bank/history?page=0&limit=${option}`);
+  }
 
+  const getTransactionType = (entry) => {
+    const { from_user_id, to_user_id, from_user_account_type, history_type, stats } = entry;
+    if (from_user_id === to_user_id) {
+      if (from_user_account_type === 'HAND') {
+        if (history_type === 'SALE') return 'Purchase';
+        return stats?.type === 'CONVERT' ? 'Unit Conversion' : 'Deposit';
+      }
+      return history_type === 'SALE' ? 'Sale' : 'Withdraw';
+    }
+    if (history_type === 'SALE') {
+      switch (stats?.type) {
+        case 'TRAINING_UNTRAIN':
+          return 'Untrain Units';
+        case 'TRAINING_TRAIN':
+          return 'Train Units';
+        case 'TRAINING_CONVERSION':
+          return 'Convert Units';
+        case 'BATTLE_UPGRADES_BUY':
+          return 'Battle Upgrade Purchase';
+        case 'BATTLE_UPGRADES_SELL':
+          return 'Battle Upgrade Sale';
+      }
+    }
+    if (history_type === 'PLAYER_TRANSFER') return 'Player Transfer';
+    if (history_type === 'RECRUITMENT') return 'Recruitment';
+    if (history_type === 'ECONOMY') return 'Income';
+    if (history_type === 'FORT_REPAIR') return 'Fort Repair';
+    if (history_type === 'WAR_SPOILS') return 'War Spoils';
+    if (history_type === 'DAILY_RECRUIT') return 'Daily Reward';
+    return 'UNKNOWN';
+  };
+
+  const getGoldTxSymbol = (entry) => {
+    const transactionType = getTransactionType(entry);
+    if (transactionType === 'Recruitment' || transactionType === 'Income') return '+';
+    if (transactionType === 'War Spoils' && entry.to_user_id === user?.id) return '+';
+    return '-';
+  };
+
+  // Fetch user color scheme
   useEffect(() => {
-    if (user) {
-      if (user.colorScheme)
-        setColorScheme(user.colorScheme);
+    if (user && user.colorScheme) {
+      setColorScheme(user.colorScheme);
     }
   }, [user]);
 
+  // On mount or whenever "currentPage" or filters change, fetch data
   useEffect(() => {
-    const anyFilterActive = Object.values(filters).some(status => status === true);
+    if (!user) return;
 
-    if (currentPage === 'history' || currentPage === 'deposit') {
+    const anyFilterActive = Object.values(filters).some((status) => status === true);
+
+    // Only fetch history for the deposit or history pages
+    if (currentPage === 'deposit')
+    {
+      fetch('/api/bank/history?deposits=true&withdraws=true&limit=10&page=0')
+        .then((response) => response.json())
+        .then((data) => {
+          setDepositWithdrawHistory(data.rows);
+          setMessage('');
+        })
+        .catch((error) => {
+          logError('Error fetching bank history:', error);
+          setMessage('Failed to fetch data');
+        });
+    }
+    if (currentPage === 'history') {
       if (anyFilterActive) {
         const queryParams = new URLSearchParams();
-        Object.keys(filters).forEach(key => {
+        Object.keys(filters).forEach((key) => {
           if (filters[key]) {
             queryParams.append(key, 'true');
           }
         });
 
+        queryParams.set('page', page.toString());
+        queryParams.set('limit', limit.toString());
+
         fetch(`/api/bank/history?${queryParams.toString()}`)
           .then((response) => response.json())
           .then((data) => {
-            setBankHistory(data);
+            setFilteredBankHistory(data.rows);
+            setTotalPages(data.totalPages);
             setMessage('');
           })
           .catch((error) => {
-            console.error('Error fetching bank history:', error);
+            logError('Error fetching bank history:', error);
             setMessage('Failed to fetch data');
           });
       } else {
         setMessage('No filters selected');
-        setBankHistory([]);
+        setFilteredBankHistory([]);
       }
-    } 
-      fetch('/api/bank/getDeposits')
-        .then((response) => response.json())
-        .then((data) => {
-          setDepositsAvailable(data.deposits);
-          setNextDepositAvailable(data.nextDepositAvailable);
-          setMessage('');
-        })
-        .catch((error) => {
-          console.error('Error fetching deposits:', error);
-          setMessage('Failed to fetch deposits');
-        });
+    }
 
-  }, [currentPage, filters]);
-
+    // Always fetch deposit availability
+    fetch('/api/bank/getDeposits')
+      .then((response) => response.json())
+      .then((data) => {
+        setDepositsAvailable(data.deposits);
+        setNextDepositAvailable(data.nextDepositAvailable);
+        setDepositsMax(user?.maximumBankDeposits || 0);
+        setMessage('');
+      })
+      .catch((error) => {
+        logError('Error fetching deposits:', error);
+        setMessage('Failed to fetch deposits');
+      });
+  }, [currentPage, filters, user, page, limit]);
 
   useEffect(() => {
-    if(user && user.units){
-      setCitizenUnit(user?.units.find((u) => u.type === 'WORKER')?.quantity ?? 0);
-      setDepositsMax(user.maximumBankDeposits);
-      if (depositAmount > BigInt(Math.floor(parseInt(user?.gold?.toString()) * 0.8))) {
-        setDepositError('Deposit amount exceeds the maximum allowed limit.');
-      } else {
-        setDepositError('');
-      }
-      if (withdrawAmount > BigInt(user?.goldInBank?.toString())) {
-        setWithdrawError('Withdraw amount exceeds the maximum allowed limit.');
-      } else {
-        setWithdrawError('');
-      }
+    if (user?.units) {
+      setCitizenUnit(user.units.find((u) => u.type === 'WORKER')?.quantity ?? 0);
     }
-
-  }, [user, depositAmount, withdrawAmount]);
-
-  const handleDeposit = async () => {
-    if (depositAmount > BigInt(Math.floor(parseInt(user?.gold?.toString()) * 0.8))) {
-      setDepositError('Deposit amount exceeds the maximum allowed limit.');
-      return;
-    }
-    setDepositError('')
-    try {
-      const response = await fetch('/api/bank/deposit', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(stringifyObj({ depositAmount })),
-      });
-
-      const data = await response.json();
-
-      if (data.error) {
-        alertService.error(data.error);
-
-        // Handle error
-      } else {
-        // Update the user context or fetch new data
-        forceUpdate();
-        alertService.success("Successfully deposited gold");
-        fetch('/api/bank/getDeposits')
-          .then((response) => response.json())
-          .then((data) => setDepositsAvailable(data.deposits))
-          .catch((error) => console.error('Error fetching bank history:', error));
-        setDepositAmount(BigInt(0));
-        setDepositError('');
-      }
-    } catch (error) {
-      console.error('Error depositing:', error);
-      alertService.error('Failed to deposit gold. Please try again.');
-    }
-  };
-  const handleWithdraw = async () => {
-    if (withdrawAmount > BigInt(user?.goldInBank?.toString())) {
-      setWithdrawError('Withdraw amount exceeds the maximum allowed limit.');
-      return;
-    }
-    setWithdrawError('')
-    try {
-      const response = await fetch('/api/bank/withdraw', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(stringifyObj({ withdrawAmount })),
-      });
-
-      const data = await response.json();
-
-      if (data.error) {
-        // Handle error
-      } else {
-        // Update the user context or fetch new data
-        forceUpdate();
-        alertService.success("Successfully withdrew gold");
-        setWithdrawAmount(BigInt(0));
-        setWithdrawError('');
-      }
-    } catch (error) {
-      console.error('Error withdrawing:', error);
-      alertService.error('Failed to withdraw gold. Please try again.');
-    }
-  };
+  }, [user]);
 
   return (
-    <div className="mainArea pb-10">
-      <h2 className="page-title">Bank</h2>
-      <div className="my-5 flex justify-between">
-        <Alert />
-      </div>
-      <SimpleGrid cols={{base:1, xs:2, md:4}}>
-        <Paper withBorder p="sm" radius="md" className={classes.card}>
-          <Group justify="space-between">
-            <Text size="lg" fw={'bold'} c="dimmed">
-              Gold On Hand
-            </Text>
-            <ThemeIcon c='white'>
-              <BiCoinStack style={{ width: rem(15), height: rem(15) }} />
-            </ThemeIcon>
-          </Group>
+    <MainArea title="Bank">
+      <SimpleGrid cols={{ base: 1, xs: 2, md: 4 }} gap="lg" verticalgap="xl">
+        {/* Gold On Hand Card */}
+        <BankCard
+          title="Gold On Hand"
+          value={parseInt(user?.gold?.toString() ?? '0')}
+          icon={<BiCoinStack style={{ width: rem(15), height: rem(15) }} />}
+          variant="default"
+        />
 
-          <Group align="flex-end" gap="xs" mt={10}>
-            <Text>{parseInt(user?.gold?.toString() ?? "0").toLocaleString()}</Text>
-          </Group>
-        </Paper>
-        <Paper withBorder p="sm" radius="md" className={classes.card}>
-          <Group justify="space-between">
-            <Text size="lg" fw={'bold'} c="dimmed">
-              Banked Gold
-            </Text>
-            <ThemeIcon c='white'>
-              <BiSolidBank style={{ width: rem(15), height: rem(15) }} />
-            </ThemeIcon>
-          </Group>
-          <Group align="flex-end" gap="xs" mt={10}>
-            <Text>{parseInt(user?.goldInBank?.toString() ?? "0").toLocaleString()}</Text>
-          </Group>
-        </Paper>
-        <Paper withBorder p="sm" radius="md" className={classes.card}>
-          <Group justify="space-between">
-            <Text size="lg" fw={'bold'} c="dimmed">
-              Daily Deposits
-            </Text>
-            <ThemeIcon c='white'>
-              <BiMoney style={{ width: rem(15), height: rem(15) }} />
-            </ThemeIcon>
-          </Group>
+        {/* Banked Gold Card */}
+        <BankCard
+          title="Banked Gold"
+          value={parseInt(user?.goldInBank?.toString() ?? '0')}
+          icon={<BiSolidBank style={{ width: rem(15), height: rem(15) }} />}
+          variant="default"
+        />
 
-          <Group align="flex-end" gap="xs" mt={10}>
-            <Text>{depositsMax}</Text>
-          </Group>
-        </Paper>
-        <Paper withBorder p="sm" radius="md" className={classes.card}>
-          <Group justify="space-between">
-            <Text size="lg" fw={'bold'} c="dimmed">
-              Deposits Available
-            </Text>
-            <ThemeIcon c='white'>
-              <BiMoney style={{ width: rem(15), height: rem(15) }} />
-            </ThemeIcon>
-          </Group>
+        {/* Daily Deposits Card */}
+        <BankCard
+          title="Daily Deposits"
+          value={depositsMax}
+          icon={<BiMoney style={{ width: rem(15), height: rem(15) }} />}
+          variant="default"
+        />
 
-          <Group align="flex-end" gap="sm" mt={10}>
-            
-            <Text>{despositsAvailable}</Text>
-          </Group>
-          {despositsAvailable < depositsMax && (
-            <Group>
-              <Text size="lg" c="dimmed">
-                Next deposit available in {nextDepositAvailable.hours}:{nextDepositAvailable.minutes}
-              </Text>
-            </Group>
-          )}
-        </Paper>
+        {/* Deposits Available Card */}
+        <BankCard
+          title="Deposits Available"
+          value={despositsAvailable}
+          icon={<BiMoney style={{ width: rem(15), height: rem(15) }} />}
+          variant={despositsAvailable > 0 ? "pulse" : "default"}
+          subtext={despositsAvailable < depositsMax ? 
+            `Next deposit available in ${nextDepositAvailable.hours}:${nextDepositAvailable.minutes}` : 
+            undefined}
+        />
       </SimpleGrid>
 
       <Space h="md" />
-      
-      <Tabs defaultValue={currentPage}  className="mb-2 font-medieval">
+
+      {/* Tabs: deposit, history, economy */}
+      <Tabs
+        defaultValue={currentPage}
+        className="mb-2 font-medieval"
+      >
         <Tabs.List grow justify="center">
-          <Tabs.Tab value="deposit" onClick={() => {
-            router.push("/structures/bank/deposit");
-          }}
-            color={(colorScheme === "ELF") ? 'green' : (colorScheme === 'GOBLIN' ? 'red' : (colorScheme === 'UNDEAD' ? 'dark' : 'blue'))}
+          <Tabs.Tab
+            value="deposit"
+            onClick={() => {
+              router.push('/structures/bank/deposit');
+            }}
+            color={
+              colorScheme === 'ELF'
+                ? 'green'
+                : colorScheme === 'GOBLIN'
+                  ? 'red'
+                  : colorScheme === 'UNDEAD'
+                    ? 'dark'
+                    : 'blue'
+            }
           >
             <span className="text-xl">Deposit</span>
           </Tabs.Tab>
-          <Tabs.Tab value="history" onClick={() => { router.push("/structures/bank/history") }}
-            color={(colorScheme === "ELF") ? 'green' : (colorScheme === 'GOBLIN' ? 'red' : (colorScheme === 'UNDEAD' ? 'dark' : 'blue'))}
+          <Tabs.Tab
+            value="history"
+            onClick={() => {
+              router.push('/structures/bank/history');
+            }}
+            color={
+              colorScheme === 'ELF'
+                ? 'green'
+                : colorScheme === 'GOBLIN'
+                  ? 'red'
+                  : colorScheme === 'UNDEAD'
+                    ? 'dark'
+                    : 'blue'
+            }
           >
             <span className="text-xl">History</span>
           </Tabs.Tab>
-          <Tabs.Tab value="economy" onClick={() => { router.push("/structures/bank/economy") }}
-            color={(colorScheme === "ELF") ? 'green' : (colorScheme === 'GOBLIN' ? 'red' : (colorScheme === 'UNDEAD' ? 'dark' : 'blue'))}
+          <Tabs.Tab
+            value="economy"
+            onClick={() => {
+              router.push('/structures/bank/economy');
+            }}
+            color={
+              colorScheme === 'ELF'
+                ? 'green'
+                : colorScheme === 'GOBLIN'
+                  ? 'red'
+                  : colorScheme === 'UNDEAD'
+                    ? 'dark'
+                    : 'blue'
+            }
           >
             <span className="text-xl">Economy</span>
           </Tabs.Tab>
         </Tabs.List>
       </Tabs>
-     
+
       <Space h="md" />
 
       {currentPage === 'deposit' && (
-        <>
-          <Paper shadow="xs" p="md"><form
-            onSubmit={(e) => {
-              e.preventDefault();
-              handleDeposit();
-            }}
-            className="flex items-end space-x-2"
-          >
-            <div className="grow">
-              <label htmlFor="depositAmount" className="block">
-                Amount to Deposit
-              </label>
-              <label className="text-sm text-gray-600 mb-2 block">You can deposit up to 80% of your gold per transaction</label>
-              <NumberInput
-                value={depositAmount.toString()}
-                onChange={(value) => setDepositAmount(BigInt(value))}
-                max={Math.floor(parseInt(user?.gold?.toString()) * 0.8)}
-                placeholder="0"
-                min={0}
-                hideControls
-                allowNegative={false}
-                error={depositError}
-                rightSection={
-                  <Button size="compact-xs" c="dimmed" onClick={() => { setDepositAmount(BigInt(Math.floor(parseInt(user?.gold?.toString()) * 0.8)))}}>
-                    Max
-                  </Button>
-                }
-                rightSectionWidth={50}
-              />
-            </div>
-            <div>
-              <Button
-                type="submit"
-                className="px-4 py-2 text-white"
-              >
-                Deposit
-              </Button>
-            </div>
-          </form>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              handleWithdraw();
-            }}
-            className="flex items-end space-x-2"
-          >
-            <div className="grow">
-              <label htmlFor="withdrawAmount" className="mb-2 block">
-                Amount to Withdraw
-              </label>
-              <NumberInput
-                  value={withdrawAmount.toString()}
-                  onChange={(value) => setWithdrawAmount(BigInt(value))}
-                  placeholder="0"
-                  min={0}
-                  max={parseInt(user?.goldInBank?.toString())}
-                  hideControls
-                  allowNegative={false}
-                  error={withdrawError}
-                  rightSection={
-                    <>
-                      <Button type='button' size='compact-xs' c="dimmed" mr={5} onClick={() => { setWithdrawAmount(BigInt(Math.floor(parseInt(user?.goldInBank?.toString()) * 0.1))) }}>10%</Button>
-                      <Button type='button' size='compact-xs' c="dimmed" mr={5} onClick={() => { setWithdrawAmount(BigInt(Math.floor(parseInt(user?.goldInBank?.toString()) * 0.25))) }}>25%</Button>
-                      <Button type='button' size='compact-xs' c="dimmed" mr={5} onClick={() => { setWithdrawAmount(BigInt(Math.floor(parseInt(user?.goldInBank?.toString()) * 0.50))) }}>50%</Button>
-                      <Button type='button' size='compact-xs' c="dimmed" onClick={() => { setWithdrawAmount(BigInt(Math.floor(parseInt(user?.goldInBank?.toString()) ))) }}>100%</Button>
-                    </>
-                  }
-                  rightSectionWidth={200}
-                />
-              </div>
-            <div>
-              <Button
-                type="submit"
-                className="px-4 py-2 text-white"
-              >
-                Withdraw
-              </Button>
-            </div>
-            </form>
-          </Paper>
-          <Space h="md" />
-          <Paper shadow="xs" p="md">
-            <Table className="min-w-full border-neutral-500" striped>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>Date</Table.Th>
-                  <Table.Th>Transaction Type</Table.Th>
-                  <Table.Th>Amount</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {bankHistory.filter((entry)=>entry.from_user_id === entry.to_user_id).slice(0,10).map((entry, index) => {
-                  let transactionType = '';
-                  console.log('history type: ', entry.history_type)
-                  if (entry.from_user_id === entry.to_user_id) {
-                    transactionType =
-                      entry.from_user_account_type === 'HAND'
-                        ? (entry.history_type === 'SALE'? 'Purchase' : 'Deposit')
-                      : (entry.history_type === 'SALE' ? 'Sale' : 'Withdraw');
-                  }
-
-                  return (
-                    <Table.Tr key={index}>
-                      <Table.Td>{new Date(entry?.date_time).toLocaleDateString()} {new Date(entry?.date_time).toLocaleTimeString() }</Table.Td>
-                      <Table.Td>{transactionType}</Table.Td>
-                      <Table.Td>{toLocale(entry.gold_amount, user?.locale)} gold</Table.Td>
-                    </Table.Tr>
-                  );
-                })}
-              </Table.Tbody>
-            </Table>
-          </Paper>
-        </>
+        <BankDepositWithdraw
+          user={user}
+          forceUpdate={forceUpdate}
+          bankHistory={depositWithdrawHistory}
+          setDepositsAvailable={setDepositsAvailable}
+          setNextDepositAvailable={setNextDepositAvailable}
+          colorScheme={colorScheme}
+        />
       )}
 
       {currentPage === 'history' && (
-        <div>
-          <Group><Chip
-            variant="filled"
-            checked={filters.war_spoils}
-            onChange={() => { setFilters({ ...filters, war_spoils: !filters.war_spoils }) }}
-            color={(colorScheme === "ELF") ? 'green' : (colorScheme === 'GOBLIN' ? 'red' : (colorScheme === 'UNDEAD' ? 'gray': 'blue'))}
-          >
-            War Spoils
-          </Chip>
-          <Chip
-            variant="filled"
-              checked={filters.deposits}
-              onChange={() => { setFilters({ ...filters, deposits: !filters.deposits }) }}
-              color={(colorScheme === "ELF") ? 'green' : (colorScheme === 'GOBLIN' ? 'red' : (colorScheme === 'UNDEAD' ? 'gray' : 'blue'))}
-          >
-            Deposits
-          </Chip>
-          <Chip
-            variant="filled"
-              checked={filters.withdraws}
-              onChange={() => { setFilters({ ...filters, withdraws: !filters.withdraws }) }}
-              color={(colorScheme === "ELF") ? 'green' : (colorScheme === 'GOBLIN' ? 'red' : (colorScheme === 'UNDEAD' ? 'gray' : 'blue'))}
-          >
-            Withdraws
-          </Chip>
-          <Chip
-            variant="filled"
-              checked={filters.transfers}
-              onChange={() => { setFilters({ ...filters, transfers: !filters.transfers }) }}
-              color={(colorScheme === "ELF") ? 'green' : (colorScheme === 'GOBLIN' ? 'red' : (colorScheme === 'UNDEAD' ? 'gray' : 'blue'))}
-          >
-            Transfers
-            </Chip>
-            <Chip
-              variant="filled"
-              checked={filters.sale}
-              onChange={() => { setFilters({ ...filters, sale: !filters.sale }) }}
-              color={(colorScheme === "ELF") ? 'green' : (colorScheme === 'GOBLIN' ? 'red' : (colorScheme === 'UNDEAD' ? 'gray' : 'blue'))}
-            >
-              Sale
-            </Chip>
-          </Group>
-          {message && <div className="text-center p-4">{message}</div>}
-          <Space h="md" />
-          {message === '' && bankHistory.length > 0 ? (
-            
-            <Paper shadow="xs" >
-            <Table className="min-w-full border-neutral-500" striped>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>Date</Table.Th>
-                  <Table.Th>Transaction Type</Table.Th>
-                  <Table.Th>Amount</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {bankHistory.map((entry, index) => {
-                  let transactionType = '';
-                  
-                  if (entry.from_user_id === entry.to_user_id) {
-                    transactionType =
-                      entry.from_user_account_type === 'HAND'
-                        ? (entry.history_type === 'SALE' ? 'Purchase' : 'Deposit')
-                        : (entry.history_type === 'SALE' ? 'Sale' : 'Withdraw');
-                  } else if (entry.history_type === 'PLAYER_TRANSFER') {
-                    transactionType = 'Player Transfer';
-                  } else {
-                    transactionType = 'War Spoils';
-                  }
+        <ContentCard
+        title="Bank History"
+        icon={<BiSolidBank style={{ width: rem(15), height: rem(15) }} />}
+        >
+          {/* Filters */}
+          <BankHistoryFilters
+            colorScheme={colorScheme}
+            setFilters={setFilters}
+            filters={filters}
+          />
 
-                  return (
-                    <Table.Tr key={index}>
-                      <Table.Td>{new Date(entry.date_time).toLocaleDateString()} {new Date(entry?.date_time).toLocaleTimeString()}</Table.Td>
-                      <Table.Td>{transactionType}</Table.Td>
-                      <Table.Td>{toLocale(entry.gold_amount, user?.locale)} gold</Table.Td>
-                    </Table.Tr>
-                  );
-                })}
-              </Table.Tbody>
-              </Table>
-            </Paper>
-          ) : (
-            <div className="text-center p-4">No Records Found</div>
-          )}
-        </div>
+          {/* Full Table */}
+          <BankHistoryTable
+            bankHistory={filteredBankHistory}
+            user={user}
+            message={message}
+            getTransactionType={getTransactionType}
+            getGoldTxSymbol={getGoldTxSymbol}
+            handleRowsPerPageChange={handleRowsPerPageChange}
+            limit={limit}
+            page={page}
+            totalPages={totalPages}
+          />
+        </ContentCard>
       )}
 
       {currentPage === 'economy' && (
-        <Flex>
+        <Flex gap="md" direction={{ base: 'column', sm: 'row' }}>
           {/* Workers Card */}
-          <Paper className="w-1/2 rounded-lg p-6" shadow='md'>
-            <h3 className="text-xl font-semibold">Workers</h3>
-            <Divider my="md" />
-            <div className="space-y-2">
-              <Flex justify={'space-between'}>
-                <Text size='md'>Total Workers:</Text>
-                <Text size='sm'>{citizenUnit || 0}</Text>
-              </Flex>
-              <Text c='dimmed' size='sm'>To increase your workforce, visit the training page.</Text>
-              <Flex justify={'space-between'}>
-                <Text size='md'>Gold Per Worker:</Text>
-                <Text size='sm'>{user?.goldPerWorkerPerTurn.toLocaleString()} gold/turn</Text>
-              </Flex>
-                <Text c='dimmed' size='sm'>
-                  To increase your gold per worker, upgrade your economy
-                  structure.
+          <ContentCard 
+            title="Workers"
+            icon={<BiUserCircle style={{ width: rem(15), height: rem(15) }} />}
+            className="flex-1"
+          >
+            <div className="space-y-4">
+              <div>
+                <Flex justify="space-between" align="center" mb={8}>
+                  <Text fw={500}>Total Workers:</Text>
+                  <Text>{citizenUnit || 0}</Text>
+                </Flex>
+                <Text c="dimmed" size="sm">
+                  To increase your workforce, visit the training page.
                 </Text>
+              </div>
+              
+              <div>
+                <Flex justify="space-between" align="center" mb={8}>
+                  <Text fw={500}>Gold Per Worker:</Text>
+                  <Text>{user?.goldPerWorkerPerTurn.toLocaleString()} gold/turn</Text>
+                </Flex>
+                <Text c="dimmed" size="sm">
+                  Upgrade your economy structure to increase gold per worker.
+                </Text>
+              </div>
             </div>
-          </Paper>
-          <Space w="md" />
+          </ContentCard>
 
           {/* Operations Card */}
-          <Paper className="w-1/2 rounded-lg p-6 shadow-md">
-            <h3 className="text-xl font-semibold">Operations</h3>
-            <Divider my="md"  />
+          <ContentCard 
+            title="Operations"
+            icon={<BiLineChart style={{ width: rem(15), height: rem(15) }} />}
+            className="flex-1"
+          >
             <div className="space-y-4">
-              <div className="flex justify-between">
-                <strong>Current Economy Upgrade:</strong>
-                <span>{EconomyUpgrades.find((eu) => eu.index === user?.economyLevel).name}</span>
+              <div>
+                <Flex justify="space-between" align="center" mb={8}>
+                  <Text fw={500}>Current Economy Upgrade:</Text>
+                  <Text>
+                    {EconomyUpgrades.find((eu) => eu.index === user?.economyLevel)?.name}
+                  </Text>
+                </Flex>
+                <Text c="dimmed" size="sm">
+                  This Upgrade increases bank deposits or gold per worker
+                </Text>
               </div>
-              <div className="mt-6 text-sm text-gray-600">
-                This Upgrade will increase bank deposits or gold per worker
+              
+              <div>
+                <Flex justify="space-between" align="center" mb={8}>
+                  <Text fw={500}>Fortification Gold Per Turn:</Text>
+                  <Text>{user?.fortificationGoldPerTurn.toLocaleString()}</Text>
+                </Flex>
+                <Text c="dimmed" size="sm">
+                  As fortification upgrades, fort gold per turn increases
+                </Text>
               </div>
-              <div className="flex justify-between">
-                <strong>Fortification Gold Per Turn:</strong>
-                <span>{user?.fortificationGoldPerTurn.toLocaleString()}</span>
+              
+              <div>
+                <Flex justify="space-between" align="center" mb={8}>
+                  <Text fw={500}>Worker Gold Per Turn:</Text>
+                  <Text>{user?.workerGoldPerTurn.toLocaleString()}</Text>
+                </Flex>
+                <Text c="dimmed" size="sm">
+                  Increase this by training more workers & upgrading economy
+                </Text>
               </div>
-              <div className="mt-6 text-sm text-gray-600">
-                As the fortification is upgraded, the fortification gold per turn will increase
+              
+              <div>
+                <Flex justify="space-between" align="center" mb={8}>
+                  <Text fw={500}>Total Gold Per Turn:</Text>
+                  <Text>{user?.goldPerTurn.toLocaleString()}</Text>
+                </Flex>
+                <Text c="dimmed" size="sm">
+                  Includes workers, fort gold, and additional wealth bonus
+                </Text>
               </div>
-              <div className="flex justify-between">
-                <strong>Worker Gold Per Turn:</strong>
-                <span>{user?.workerGoldPerTurn.toLocaleString()}</span>
-              </div>
-              <div className="mt-6 text-sm text-gray-600">
-                Increase this number by training more workers and upgrading your economy
-              </div>
-              <div className="flex justify-between">
-                <strong>Total Gold Per Turn: </strong>
-                <span>{user?.goldPerTurn.toLocaleString()}</span>
-              </div>
-              <div className="mt-6 text-sm text-gray-600">
-                This includes workers, fort gold, and any additional wealth bonus
-              </div>
-
-              <div className="flex justify-between">
-                <strong>Daily Income:</strong>
-                <span>{((BigInt(user?.goldPerTurn.toString()) || BigInt(0))  * BigInt(48)).toLocaleString()}</span>
-                {/* You can compute and display the daily income here */}
+              
+              <div>
+                <Flex justify="space-between" align="center" mb={8}>
+                  <Text fw={500}>Daily Income:</Text>
+                  <Text>
+                    {((BigInt(user?.goldPerTurn?.toString() || '0') * BigInt(48)) ?? BigInt(0)).toLocaleString()}
+                  </Text>
+                </Flex>
+                <Text c="dimmed" size="sm">
+                  Based on 48 turns per day
+                </Text>
               </div>
             </div>
-          </Paper>
+          </ContentCard>
         </Flex>
       )}
-    </div>
+    </MainArea>
   );
-};
-
-export default Bank;
+}

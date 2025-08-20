@@ -1,5 +1,8 @@
 import { levelXPArray, UnitTypes } from '@/constants';
-import type { UnitType } from '@/types/typings';
+import UserModel from '@/models/Users';
+import type { PlayerRace, UnitType, User } from '@/types/typings';
+import { calculateStrength } from './attackFunctions';
+import { createHash, webcrypto } from 'crypto';
 
 /**
    * Returns the name of a unit based on its type and level.
@@ -12,6 +15,41 @@ const getUnitName = (type: UnitType, level: number): string => {
   return unit ? unit.name : 'Unknown';
 };
 
+/**
+   * Converts a UserModel instance to a user object.
+   * @param user - The UserModel instance to convert.
+   * @returns The converted user object.
+   */
+export const userModelToUser = (user: UserModel): Partial<User> => {
+  return {
+    id: user.id,
+    email: user.email,
+    password_hash: user.passwordHash,
+    display_name: user.displayName,
+    race: user.race,
+    class: user.class,
+    experience: user.experience,
+    gold: BigInt(user.gold),
+    gold_in_bank: BigInt(user.goldInBank || 0),
+    fort_level: user.fortLevel,
+    fort_hitpoints: user.fortHitpoints,
+    house_level: user.houseLevel,
+    economy_level: user.economyLevel,
+    items: user.items,
+    units: user.units,
+    battle_upgrades: (user.battle_upgrades || []).map(upgrade => ({
+      ...upgrade,
+      quantity: upgrade.quantity || 0
+    })),
+    structure_upgrades: user.structure_upgrades,
+    bonus_points: user.bonus_points || [],
+    stats: user.stats || [],
+    offense: user.offense,
+    defense: user.defense,
+    spy: user.spy,
+    sentry: user.sentry,
+  }
+}
 /**
    * Formats a timestamp into a human-readable date and time string.
    * @param timestamp - The timestamp to format.
@@ -64,7 +102,7 @@ const getLevelFromXP = (xp: number): number => {
  * @param {string} [race] The race associated with the asset, if applicable
  * @returns {string} The path for the specified asset, fit for use in HTML tags
  */
-const getAssetPath = (name, size, race) => {
+const getAssetPath = (name, size?, race: PlayerRace = 'ELF') => {
   let path = '';
   if (process.env.NEXT_PUBLIC_USE_AWS) {
     path += process.env.NEXT_PUBLIC_AWS_S3_ENDPOINT + '/images';
@@ -84,11 +122,23 @@ const getAssetPath = (name, size, race) => {
       }
       path += 'advisor-scroll.webp';
       break;
-    case 'Elf-wall-header':
-      path += '/header/Elf-wall-header.webp';
+    case 'wall-header':
+      path += `/header/${race}-wall-header.webp`;
+      break;
+    case 'top-menu':
+      path += `/header/${race}_nav_top.png`;
+      break;
+    case 'bottom-menu':
+      path += `/header/${race}_nav_bottom.png`;
       break;
     case 'OpenThrone':
       path += '/header/OpenThrone.webp';
+      break;
+    case 'corner-double-border':
+      path += '/background/ELF_top_left_double_border.svg';
+      break;
+    case 'double-border':
+      path += '/background/ELF_top_double_border.svg';
       break;
     default:
   }
@@ -128,4 +178,69 @@ const calculateOverallRank = (user) => {
     0.003 * itemScore;
 };
 
-export { formatDate, getUnitName, generateRandomString, getLevelFromXP, getAssetPath, getAvatarSrc, calculateOverallRank };
+const calculateUserStats = (userData: any, updatedData: any[], type: 'units' | 'items' | 'battle_upgrades') => {
+  const newUserData = { ...userData };
+  if (type === 'units') {
+    newUserData.units = updatedData;
+  } else if (type === 'items') {
+    newUserData.items = updatedData;
+  } else if (type === 'battle_upgrades') {
+    newUserData.battle_upgrades = updatedData;
+  }
+
+  const newUModel = new UserModel(newUserData);
+  const { killingStrength, defenseStrength } = calculateStrength(newUModel, 'OFFENSE');
+
+  return {
+    killingStrength,
+    defenseStrength,
+    newOffense: newUModel.getArmyStat('OFFENSE'),
+    newDefense: newUModel.getArmyStat('DEFENSE'),
+    newSpying: newUModel.getArmyStat('SPY'),
+    newSentry: newUModel.getArmyStat('SENTRY'),
+  };
+};
+
+const serializeDates = (obj) => {
+  return Object.fromEntries(
+    Object.entries(obj).map(([key, value]) => {
+      if (value instanceof Date) {
+        return [key, value.toISOString()];
+      } else if (typeof value === 'object' && value !== null) {
+        return [key, serializeDates(value)]; // Recursively handle nested objects
+      }
+      return [key, value];
+    })
+  );
+}
+
+export const idleThresholdDate = (days = 60) => { //60days is default
+  const now = new Date();
+  // if last_active is more than 60 days, set account status to IDLE
+  return new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+}
+
+/**
+ * Ensures the result is at least 0.
+ * @param {number} value - The input number to check.
+ * @returns {number} - The input value if it's 0 or greater, otherwise 0.
+ */
+export const atLeastZero = (value: number):number => {
+  return Math.max(0, value);
+}
+
+export const getSHA256Key = (secret: string) => {
+  return createHash("sha256").update(secret).digest();
+}
+
+export async function importKey(rawKey: Buffer) {
+  return await webcrypto.subtle.importKey(
+    "raw",
+    rawKey,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["decrypt"]
+  );
+}
+
+export { formatDate, getUnitName, generateRandomString, getLevelFromXP, getAssetPath, getAvatarSrc, calculateOverallRank, calculateUserStats, serializeDates };

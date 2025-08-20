@@ -11,7 +11,6 @@ import TextAlign from '@tiptap/extension-text-align';
 import Superscript from '@tiptap/extension-superscript';
 import SubScript from '@tiptap/extension-subscript';
 import { Markdown } from 'tiptap-markdown';
-import Alert  from '@/components/alert';
 import { TextInput, Button, Paper, Group, MultiSelect, Space } from '@mantine/core';
 
 export default function ComposeForm({ onClose }: ComposeFormProps) {
@@ -94,7 +93,6 @@ export default function ComposeForm({ onClose }: ComposeFormProps) {
 
   return (
     <>
-      <Alert />
       <Paper withBorder shadow="md" p="lg" className="advisor my-3 rounded-lg">
         <MultiSelect
           data={possibleMatches}
@@ -102,15 +100,9 @@ export default function ComposeForm({ onClose }: ComposeFormProps) {
           value={recipients}
           onChange={setRecipients}
           searchable
-          creatable
-          getCreateLabel={(query) => `+ Add ${query}`}
-          onCreate={(query) => addRecipient(query)}
-          onItemSubmit={(item) => addRecipient(item.value)}
           onSearchChange={handleRecipientChange}
           label="Recipients"
-          nothingFound="No matches"
           searchValue={recipient}
-          onSearchValueChange={setRecipient}
         />
 
 
@@ -164,7 +156,7 @@ export default function ComposeForm({ onClose }: ComposeFormProps) {
           <RichTextEditor.Content />
         </RichTextEditor>
 
-        <Group position="right" mt="md">
+        <Group mt="md">
           <Button onClick={handleSubmit} disabled={recipients.length === 0}>
             Send
           </Button>

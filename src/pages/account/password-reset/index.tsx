@@ -3,6 +3,8 @@ import router from 'next/router';
 import { useState } from 'react';
 import { showNotification } from '@mantine/notifications';
 import classes from './floatinginput.module.css';
+import MainArea from '@/components/MainArea';
+import { logError } from '@/utils/logger';
 
 const Index = (props) => {
   const [email, setEmail] = useState('');
@@ -34,7 +36,7 @@ const Index = (props) => {
         router.push('/account/password-reset/result');
       }, 2000);
     } catch (error) {
-      console.error('Error:', error);
+      logError('Error:', error);
       showNotification({
         title: 'Error',
         message: error.message,
@@ -44,8 +46,7 @@ const Index = (props) => {
   };
 
   return (
-    <Container>
-      <Title order={2} className="mainArea pb-10">Password Reset</Title>
+    <MainArea title="Password Reset">
       <Container size="sm" className="py-2 md:col-span-9">
         <Paper withBorder shadow="md" p="lg" className="advisor my-3 rounded-lg" style={{ backgroundColor: '#b5a565'}}>
           <form onSubmit={handleSubmit}>
@@ -79,7 +80,7 @@ const Index = (props) => {
           </form>
         </Paper>
       </Container>
-    </Container>
+    </MainArea>
   );
 };
 

@@ -1,8 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { getServerSession } from 'next-auth';
 import prisma from '@/lib/prisma';
 import UserModel from '@/models/Users';
-import { PlayerUnit, Unit } from '@/types/typings';
+import { PlayerUnit } from '@/types/typings';
 import { withAuth } from '@/middleware/auth';
 import { getOTStartDate } from '@/utils/timefunctions';
 
@@ -56,7 +55,7 @@ const handler = async(
     if (history >= 5) {
       return res
         .status(400)
-        .json({ error: 'You can only Recruit up to 5x in 24 hours.' });
+        .json({ error: 'You can only Recruit up to 5x in 24 hours.'});
     }
     const toUserHistory = await prisma.recruit_history.count({
       where: {
@@ -100,7 +99,7 @@ const handler = async(
     if (history >= 5) {
       return res
         .status(400)
-        .json({ error: 'You can only Recruit up to 5x in 24 hours.' });
+        .json({ error: 'You can only Recruit up to 5x in 24 hours.'});
     }
     
     const newRecord = await prisma.recruit_history.create({

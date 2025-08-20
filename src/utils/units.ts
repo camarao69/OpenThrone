@@ -2,7 +2,7 @@
 
 import { UnitTypes } from '@/constants';
 import UserModel from '@/models/Users';
-import { PlayerUnit } from '@/types/typings';
+import { PlayerUnit, UnitType } from '@/types/typings';
 
 export const calculateTotalCost = (units: PlayerUnit[], uModel: UserModel): number => {
   let totalCost = 0;
@@ -12,7 +12,7 @@ export const calculateTotalCost = (units: PlayerUnit[], uModel: UserModel): numb
       totalCost += (unitType.cost - ((uModel.priceBonus || 0) / 100) * unitType.cost) * unitData.quantity;
     }
   });
-  return totalCost;
+  return Math.ceil(totalCost); // Always return an integer
 };
 
 export const updateUnitsMap = (
@@ -54,15 +54,12 @@ export const updateUnitsMap = (
     } else if (isTraining) {
       unitsMap.set(unitKey, { ...unitData });
     } else {
-      throw new Error(`Cannot untrain units that the user does not have: ${unitData.type} level ${unitData.level}`);
+      return; // We don't need to throw an error for this
     }
   });
 
   return unitsMap;
 };
-
-
-
 
 export const validateUnits = (units: PlayerUnit[]): boolean => {
   return units.every(unitData => {
@@ -70,3 +67,22 @@ export const validateUnits = (units: PlayerUnit[]): boolean => {
     return unitType && unitData.quantity >= 0;
   });
 };
+
+export const getAverageLevelAndHP = (units: PlayerUnit[], unitType: UnitType, level: number | string = "all") => {
+  const filteredUnits = units.filter((unit) => unit.type === unitType && unit.quantity > 0 && (Number.isInteger(level)?unit.level ===level:true));
+  console.log('filteredUnits', filteredUnits)
+  let totalLevel = 0;
+  let totalHP = 0;
+  let totalQuantity = 0;
+  for (const unit of filteredUnits) {
+    const unitHP = unit.level * 50; // Assuming base HP is 50 per level
+    totalLevel += unit.level * unit.quantity;
+    totalHP += unitHP * unit.quantity;
+    totalQuantity += unit.quantity;
+  }
+  if (totalQuantity === 0) return { averageLevel: 0, averageHP: 0 };
+  return {
+    averageLevel: Math.ceil(totalLevel / totalQuantity),
+    averageHP: Math.ceil(totalHP / totalQuantity),
+  };
+}

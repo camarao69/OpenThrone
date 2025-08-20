@@ -7,16 +7,17 @@ import type { UnitProps, UnitSectionProps } from '@/types/typings';
 import toLocale from '@/utils/numberFormatting';
 
 import { useUser } from '../context/users';
+import RpgAwesomeIcon from './RpgAwesomeIcon';
 
 // Utility function outside the component
 const getIconClass = (heading: string) => {
   const iconMap: { [key: string]: string } = {
-    WEAPON: 'ra ra-sword',
-    SHIELD: 'ra ra-shield',
-    ARMOR: 'ra ra-armor',
-    BOOTS: 'ra ra-boot-stomp',
-    BRACERS: 'ra ra-bracer',
-    HELM: 'ra ra-knight-helmet',
+    WEAPON: 'sword',
+    SHIELD: 'shield',
+    ARMOR: 'armor',
+    BOOTS: 'boot-stomp',
+    BRACERS: 'bracer',
+    HELM: 'knight-helmet',
   };
   if (!heading) return 'default-icon';
 
@@ -51,7 +52,6 @@ const ItemSection: React.FC<UnitSectionProps> = ({
   }, [currentItems, user]);
 
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    console.log('handleInputChange', event.target.value);
     let { value } = event.target;
     if (value === '') {
       value = '0';
@@ -170,7 +170,6 @@ const ItemSection: React.FC<UnitSectionProps> = ({
       }
     } catch (error) {
       alertService.error('Failed to equip items. Please try again.');
-      console.log(error);
     }
   };
 
@@ -256,7 +255,12 @@ const ItemSection: React.FC<UnitSectionProps> = ({
         <thead>
           <tr>
             <th className="w-60 px-4 py-2">
-              <span className={`ra ${icon}`} />
+              <RpgAwesomeIcon
+                icon={icon}
+                size="lg"
+                className="mr-2"
+                color="orange"
+              />
               {` ${formatHeading(heading)}`}
             </th>
             <th className="w-10 px-4 py-2">Bonus</th>

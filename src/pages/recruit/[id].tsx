@@ -2,11 +2,11 @@ import { Turnstile } from '@marsidev/react-turnstile';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Button, Divider, Group, Paper, Space, Text } from '@mantine/core';
-import Alert from '@/components/alert';
 import { alertService } from '@/services';
 import Image from 'next/image';
 import { useUser } from '@/context/users';
 import { getAssetPath } from '@/utils/utilities';
+import MainArea from '@/components/MainArea';
 
 interface RecruitProps {
   id: string;
@@ -74,7 +74,7 @@ export default function Recruit(props) {
         setUserInfo(data);
       } else {
         // Handle error, maybe set an error state or alert
-        console.error('Error fetching user info:', data.error);
+        logError('Error fetching user info:', data.error);
       }
     };
 
@@ -131,11 +131,7 @@ export default function Recruit(props) {
   };
 
   return (
-    <div className="mainArea pb-10">
-      <h2 className="page-title">Recruiter</h2>
-      <div className="my-5 flex justify-between">
-        <Alert />
-      </div>
+    <MainArea title='Recruiter'>
       {userInfo && (
         <div className="mb-5 text-center items-center">
           <p>
@@ -198,6 +194,6 @@ export default function Recruit(props) {
           </Paper>
         </div>
       </div>
-    </div>
+    </MainArea>
   );
 }

@@ -1,8 +1,13 @@
+// pages/api/armory/convert.ts
+import type { NextApiResponse } from "next"; // Removed NextApiRequest
 import prisma from "@/lib/prisma";
 import { ItemTypes } from "@/constants";
 import { withAuth } from "@/middleware/auth";
+import type { AuthenticatedRequest } from '@/types/api'; // Import AuthenticatedRequest
 import UserModel from "@/models/Users";
-import { NextApiRequest, NextApiResponse } from "next";
+import { updateUserAndBankHistory } from "@/services";
+import { calculateUserStats } from "@/utils/utilities";
+import { logDebug, logError } from "@/utils/logger";
 
 interface ConvertRequest {
   userId: string;
@@ -12,8 +17,15 @@ interface ConvertRequest {
   locale?: string; // Optional locale parameter
 }
 
+// Define the structure of items within the user.items array
+interface UserItem {
+  type: string;
+  usage: string;
+  level: number;
+  quantity: number | string; // Allow string initially due to potential DB inconsistencies
+}
 
-const handler = async (req: NextApiRequest, res: NextApiResponse) => {
+const handler = async (req: AuthenticatedRequest, res: NextApiResponse) => { // Use AuthenticatedRequest
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -24,91 +36,166 @@ const handler = async (req: NextApiRequest, res: NextApiResponse) => {
     return res.status(400).json({ error: 'Invalid input data' });
   }
 
+  if (userId !== req.session.user.id) return res.status(401).json({ error: 'Unauthorized' });
+
   try {
     const user = await prisma.users.findUnique({ where: { id: Number(userId) } });
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
 
+    // Assert user.items is an array of UserItem
+    // We use a type assertion here because Prisma types JSON fields broadly.
+    // Ensure the default value and any updates maintain this structure.
+    // Cast through 'unknown' for stricter type safety.
+    const userItems = user.items as unknown as UserItem[];
+
     const amount = Number(conversionAmount);
-    const uModel = new UserModel(user );
+    const uModel = new UserModel(user);
+
     // Validate the amount
     if (typeof amount !== 'number' || isNaN(amount) || amount <= 0) {
       return res.status(400).json({ error: 'Invalid conversion amount' });
     }
 
-    // Split the fromItem and toItem strings to get the type, usage, and level
-    const [fromUsage, fromType, fromLevelStr] = fromItem.split('_');
-    const [toUsage, toType, toLevelStr] = toItem.split('_');
-    const fromLevel = parseInt(fromLevelStr, 10);
-    const toLevel = parseInt(toLevelStr, 10);
+    const [fromUsage, fromType] = fromItem.split(/_(.+)/);
+    const [toUsage, toType] = toItem.split(/_(.+)/);
+
+    const toItemType = ItemTypes.find((item) => item.id === toType && item.usage === toUsage);
+    const fromItemType = ItemTypes.find((item) => item.id === fromType && item.usage === fromUsage);
+
+    if (!toItemType || !fromItemType) {
+      return res.status(400).json({ error: 'Invalid item types' });
+    }
 
     // Fetch user's items and perform the conversion logic here
-    const fromItemData = user.items.find(
-      (item) => item.type === fromType && item.usage === fromUsage && item.level === fromLevel
+    const fromItemData = userItems.find(
+      (item) => item.type === fromItemType.type && item.usage === fromUsage && item.level === fromItemType.level
     );
-    const toItemData = user.items.find(
-      (item) => item.type === toType && item.usage === toUsage && item.level === toLevel
+    let toItemData = userItems.find(
+      (item) => item.type === toItemType.type && item.usage === toUsage && item.level === toItemType.level
     );
+    if (!toItemType || !fromItemType) {
+      return res.status(400).json({ error: 'Invalid item types or usages' });
+    }
 
-    if (!fromItemData || fromItemData.quantity < amount) {
+    console.log('fromItemData', fromItemData);
+    console.log('toItemData', toItemData);
+    console.log('toItemType', toItemType);
+  
+    // If the target item does not exist, create it
+    if (!toItemData) {
+      toItemData = {
+        type: toItemType.type,
+        usage: toUsage,
+        level: toItemType.level,
+        quantity: 0, // Initialize with 0 quantity
+      };
+      userItems.push(toItemData); // Add it to user's items
+    }
+
+    // Ensure fromItemData exists before accessing its level
+    if (!fromItemData) {
+      return res.status(400).json({ error: 'Source item not found for user.' });
+    }
+    const isUpgrade = fromItemData.level < toItemData.level;
+
+    // Ensure quantity is treated as a number for comparison
+    if (!fromItemData || Number(fromItemData.quantity) < amount) {
       return res.status(400).json({ error: 'Not enough items to convert' });
     }
 
-    const toItemType = ItemTypes.find((item) => item.type === toType && item.usage === toUsage && item.level === toLevel);
-    const fromItemType = ItemTypes.find((item) => item.type === fromType && item.usage === fromUsage && item.level === fromLevel);
+    // Calculate the base cost difference
+    const toBaseCost = toItemType.cost - Math.ceil(((uModel?.priceBonus || 0) / 100) * toItemType.cost);
+    const fromBaseCost = fromItemType.cost - Math.ceil(((uModel?.priceBonus || 0) / 100) * fromItemType.cost);
+    const baseCostDifference = toBaseCost - fromBaseCost;
 
-    const cost = BigInt(amount) * (BigInt(toItemType.cost - ((uModel?.priceBonus / 100) * toItemType.cost)) - BigInt(fromItemType.cost - ((uModel?.priceBonus / 100) * fromItemType.cost))) * (toItemType.level > fromItemType.level ? BigInt(1) : BigInt(75) / BigInt(100));
+    // Apply multiplier based on conversion direction
+    const multiplier = isUpgrade ? 1 : 0.75;
 
-    console.log(`Converting ${amount} ${fromItem} to ${toItem} for ${cost} gold`)
+    // Calculate the final cost
+    let cost = isUpgrade
+      ? Math.ceil(amount * baseCostDifference * multiplier)
+      : Math.floor(Math.abs(amount * baseCostDifference * multiplier));
 
-    if (user.gold < cost) {
+    // For downgrades, cost represents a refund, so we make it positive
+    if (!isUpgrade) {
+      cost = Math.floor(Math.abs(amount * baseCostDifference * multiplier));
+    }
+
+    // Check if user has enough gold for upgrade or handle refund for downgrade
+    if (isUpgrade && user.gold < BigInt(cost)) {
       return res.status(400).json({ error: 'Not enough gold' });
     }
 
-    // Deduct items and gold, add converted items
-    fromItemData.quantity = parseInt(fromItemData.quantity) - amount;
+    // Deduct items and add/remove gold based on conversion direction
+    // Store the original quantity of the target item before modification
+    const previousToItemQuantity = toItemData ? Number(toItemData.quantity) : 0;
+
+    // Ensure quantity is treated as a number before subtraction
+    fromItemData.quantity = Number(fromItemData.quantity) - amount;
     if (toItemData) {
-      toItemData.quantity = parseInt(toItemData.quantity) + amount;
+      // Ensure quantity is treated as a number before addition
+      toItemData.quantity = previousToItemQuantity + amount; // Use stored previous quantity for calculation
     } else {
-      user.items.push({ type: toType, usage: toUsage, level: toLevel, quantity: amount });
+      // This case should technically not be hit if !toItemData check above creates it
+      // But adding for safety, ensuring correct type.
+      userItems.push({
+        type: toItemType.type,
+        usage: toUsage,
+        level: toItemType.level,
+        quantity: amount,
+      });
+    }
+    if (isUpgrade) {
+      user.gold = BigInt(user.gold) - BigInt(cost);
+    } else {
+      user.gold = BigInt(user.gold) + BigInt(cost);
     }
 
-    user.gold -= BigInt(cost);
+    const conversion = await prisma.$transaction(async (tx) => {
+      // Pass the modified userItems array
+      const { killingStrength, defenseStrength, newOffense, newDefense, newSpying, newSentry } =
+        calculateUserStats(user, userItems, 'items');
 
-    // Update user in the database
-    await prisma.users.update({
-      where: { id: Number(userId) },
-      data: {
-        gold: BigInt(user.gold),
-        items: user.items,
-      },
-    });
-
-    await prisma.bank_history.create({
-      data: {
-        gold_amount: BigInt(cost),
-        from_user_id: Number(userId),
-        from_user_account_type: 'HAND',
-        to_user_id: Number(userId),
-        to_user_account_type: 'BANK',
-        date_time: new Date().toISOString(),
-        history_type: 'SALE',
-        stats: {
-          type:'ARMORY_CONVERSION',
-          fromItem: fromItem,
-          toItem: toItem,
-          amount: conversionAmount
-        }
-      }
+      logDebug(`Converting items: ${fromItem} to ${toItem}, amount: ${amount}, cost: ${cost}`);
+      await updateUserAndBankHistory(
+        tx,
+        user.id,
+        user.gold,
+        userItems, // Pass the typed array
+        killingStrength,
+        defenseStrength,
+        newOffense,
+        newDefense,
+        newSpying,
+        newSentry,
+        {
+          gold_amount: BigInt(cost),
+          from_user_id: Number(userId),
+          from_user_account_type: isUpgrade ? 'HAND' : 'BANK',
+          to_user_id: Number(userId),
+          to_user_account_type: isUpgrade ? 'BANK' : 'HAND',
+          date_time: new Date().toISOString(),
+          history_type: 'SALE',
+          stats: {
+            type: 'ARMORY_CONVERSION',
+            fromItem: fromItem,
+            toItem: toItem,
+            amount: amount, // Log the numeric amount
+            previousToItemQuantity: previousToItemQuantity, // Log the previous quantity
+          },
+        },
+        'items'
+      );
     });
 
     return res.status(200).json({
       message: 'Conversion successful',
-      data: user.items,
+      data: userItems, // Return the modified array
     });
   } catch (error) {
-    console.error(error);
+    logError(error);
     return res.status(500).json({ error: 'Failed to perform conversion' });
   }
 };

@@ -5,16 +5,14 @@ import { Grid, Space, Group, Button, Text, Paper } from "@mantine/core";
 import { AnimatePresence, motion } from "framer-motion";
 import Image from "next/image";
 import Modal from "./modal";
-import users from "@/pages/battle/users";
 import { useState } from "react";
 
-const attackResults = ({ battle, viewerID }) => {
+const AttackResults = ({ battle, viewerID }) => {
   const { attackerPlayer, defenderPlayer, winner, stats } = battle;
   const isViewerAttacker = viewerID === attackerPlayer.id
   const isViewerDefender = viewerID === defenderPlayer.id;
   const isPlayerWinner = winner === viewerID;
   const isAttackerWinner = winner === attackerPlayer.id;
-  console.log(stats);
   const [isOpen, setIsOpen] = useState(false);
   const lines = [];
   const defenderRace = defenderPlayer?.race ?? 'ELF';
@@ -36,32 +34,32 @@ const attackResults = ({ battle, viewerID }) => {
     else return 0;
   };
 
-  const attackerTotalLosses = toLocale(totalLosses(stats.attacker_losses));
-  const defenderTotalLosses = toLocale(totalLosses(stats.defender_losses));
+  const attackerTotalLosses = toLocale(totalLosses(JSON.parse(stats.attacker_losses)));
+  const defenderTotalLosses = toLocale(totalLosses(JSON.parse(stats.defender_losses)));
 
   const summaryLines = []
 
   const countUnitsOfType = (units, type) => {
-    return toLocale(units.filter(unit => unit.type === type)
-      .reduce((acc, curr) => acc + curr.quantity, 0));
+    const unitsArray = Array.isArray(units) ? units : Object.values(units);
+    return toLocale(
+      unitsArray
+        .filter(unit => unit.type === type)
+        .reduce((acc, curr) => acc + curr.quantity, 0)
+    );
   }
 
   summaryLines.push(`Battle ID: ${battle.id}`);
   summaryLines.push(`${isViewerAttacker ? 'You' : attackerPlayer.display_name} attacked ${isViewerDefender ? 'You' : defenderPlayer.display_name}`);
-  summaryLines.push(`${isViewerAttacker ? 'Your' : attackerPlayer.display_name + "'s"} ${countUnitsOfType(stats.startOfAttack.Attacker.units, 'OFFENSE')} soldiers did ${toLocale(new UserModel(stats.startOfAttack.Attacker).offense)} damage`);
-  summaryLines.push(`${isViewerDefender ? 'Your' : defenderPlayer.display_name + "'s"} countered with ${toLocale(new UserModel(stats.startOfAttack.Defender).defense)} damage`);
+  summaryLines.push(`${isViewerAttacker ? 'Your' : attackerPlayer.display_name + "'s"} ${countUnitsOfType(stats.startOfAttack.Attacker.units, 'OFFENSE')} soldiers did ${toLocale(new UserModel(stats.startOfAttack.Attacker, true, false).offense)} damage`);
+  summaryLines.push(`${isViewerDefender ? 'Your' : defenderPlayer.display_name + "'s"} countered with ${toLocale(new UserModel(stats.startOfAttack.Defender, true, false).defense)} damage`);
   summaryLines.push(`${isPlayerWinner ? 'You' : isAttackerWinner ? attackerPlayer.display_name : defenderPlayer.display_name} won the battle`);
-  if (typeof stats.xpEarned === 'object') {
-    summaryLines.push(`${attackerPlayer.display_name} earned ${toLocale(stats.xpEarned.attacker)} XP`)
-    summaryLines.push(`${defenderPlayer.display_name} earned ${toLocale(stats.xpEarned.defender)} XP`)
-  } else {
-    summaryLines.push(`${attackerPlayer.display_name} earned: ${toLocale(stats.xpEarned)} XP`);
-  }
+  summaryLines.push(`${attackerPlayer.display_name} earned ${toLocale(JSON.parse(stats.xpEarned).attacker)} XP`)
+  summaryLines.push(`${defenderPlayer.display_name} earned ${toLocale(JSON.parse(stats.xpEarned).defender)} XP`)
+
   summaryLines.push(`Gold Pillaged: ${isAttackerWinner ? toLocale(stats.pillagedGold.toLocaleString()) : 0}`);
   summaryLines.push(`Fort Damage Dealt by Attacker: ${stats.forthpAtStart - stats.forthpAtEnd}`);
   summaryLines.push(`Total Units Lost by Attacker: ${attackerTotalLosses}`);
   summaryLines.push(`Total Units Lost by Defender: ${defenderTotalLosses}`);
-
   const sentence = {
     hidden: { opacity: 0 },
     visible: {
@@ -69,7 +67,7 @@ const attackResults = ({ battle, viewerID }) => {
       transition: {
         delayChildren: 1,
         staggerChildren: 0.06,
-        staggerDirection: -1,
+        staggerDirection: 1, //TODO: with i18n, this should be configurable based on RTL or LTR
       },
     },
     exit: { opacity: 0 },
@@ -125,7 +123,7 @@ const attackResults = ({ battle, viewerID }) => {
               <Modal
                 isOpen={isOpen}
                 toggleModal={toggleModal}
-                profileID={(isViewerAttacker ? users.id : attackerPlayer.id)}
+                profileID={(isViewerAttacker ? defenderPlayer.id : attackerPlayer.id)}
               />
                 </Group>
             
@@ -181,4 +179,4 @@ const attackResults = ({ battle, viewerID }) => {
   );
 };
 
-export default attackResults;
+export default AttackResults;

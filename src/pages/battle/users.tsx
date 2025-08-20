@@ -1,80 +1,209 @@
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { useSession } from 'next-auth/react';
+import { useSearchParams } from 'next/navigation';
 import React, { useEffect, useState } from 'react';
 import { useUser } from '@/context/users';
 import prisma from '@/lib/prisma';
 import UserModel from '@/models/Users';
 import toLocale from '@/utils/numberFormatting';
-import { Table, Group, Avatar, Badge, Text, Indicator } from '@mantine/core';
+import { Table, Group, Avatar, Badge, Text, Indicator, Pagination, Center, Button, Paper, Pill, useMantineTheme } from '@mantine/core';
 import { InferGetServerSidePropsType } from "next";
-
-const ROWS_PER_PAGE = 10;
+import { usePagination } from '@mantine/hooks';
+import MainArea from '@/components/MainArea';
+import { logError } from '@/utils/logger';
 
 const Users = ({ allUsers }: InferGetServerSidePropsType<typeof getServerSideProps>) => {
-  const { data: session } = useSession();
-  const router = useRouter();
   const searchParams = useSearchParams();
   const { user } = useUser();
   const colorScheme = user?.colorScheme;
   const [page, setPage] = useState(parseInt(searchParams.get('page')) || 1);
-  const [sortBy, setSortBy] = useState(searchParams.get('sortBy') || 'overallrank');
-  const [sortDir, setSortDir] = useState(searchParams.get('sortDir') || 'asc');
+  const [lastPage, setLastPage] = useState(1);
+  const [sortBy, setSortBy] = useState(searchParams.get('sortBy') || 'level');
+  const [sortDir, setSortDir] = useState(searchParams.get('sortDir') || 'desc');
   const [players, setPlayers] = useState([]);
   const [formattedGolds, setFormattedGolds] = useState<string[]>([]);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [attackRangeMin, setAttackRangeMin] = useState(1);
+  const [attackRangeMax, setAttackRangeMax] = useState(5);
+  const [hasSetPageInitially, setHasSetPageInitially] = useState(false);
+  const [myPage, setMyPage] = useState(1);
+  const [myRank, setMyRank] = useState(1);
+  const pagination = usePagination({ total: lastPage, initialPage: 1 });
+  const theme = useMantineTheme();
+
+  const getRankLabel = () => {
+    switch (sortBy) {
+      case 'gold':
+        return 'Gold Rank';
+      case 'level':
+        return 'Lvl Rank';
+      case 'population':
+        return 'Pop Rank';
+      default:
+        return 'Rank';
+    }
+  };
 
   useEffect(() => {
-    const start = (page - 1) * ROWS_PER_PAGE;
-    const end = start + ROWS_PER_PAGE;
+    if(!user) return;
+    const start = (page - 1) * rowsPerPage;
+    const end = start + rowsPerPage;
     let sortedPlayers = [...allUsers];
+    setLastPage(Math.ceil(allUsers.length / rowsPerPage));
 
-    if (sortBy === 'overallrank') {
-      sortedPlayers.sort((a, b) => sortDir === 'desc' ? b.rank - a.rank : a.rank - b.rank);
-    } else if (sortBy === 'gold') {
-      sortedPlayers.sort((a, b) => sortDir === 'desc' ? Number(a.gold) - Number(b.gold) : Number(b.gold) - Number(a.gold));
+    // Fallback for users where the rank hasn't been calculated yet (and is therefore 0 or null)
+    sortedPlayers.forEach((u) => u.rank = u.rank || Infinity);
+
+    // Sorting logic
+    if (sortBy === 'gold') {
+      sortedPlayers.sort((a, b) => sortDir === 'desc' ? Number(b.gold) - Number(a.gold) : Number(a.gold) - Number(b.gold));
     } else if (sortBy === 'population') {
-      sortedPlayers.sort((a, b) => sortDir === 'desc' ? Number(a.population) - Number(b.population) : Number(b.population) - Number(a.population));
+      sortedPlayers.sort((a, b) => sortDir === 'desc' ? Number(b.population) - Number(a.population) : Number(a.population) - Number(b.population));
     } else if (sortBy === 'level') {
-      sortedPlayers.sort((a, b) => sortDir === 'desc' ? Number(a.experience) - Number(b.experience) : Number(b.experience) - Number(a.experience));
+      sortedPlayers.sort((a, b) => sortDir === 'desc' ? Number(b.experience) - Number(a.experience) : Number(a.experience) - Number(b.experience));
     }
 
+    // Recalculate the page of the logged-in player
+    const loggedInPlayerIndex = sortedPlayers.findIndex((player) => player.id === user?.id);
+    const playerPage = Math.floor(loggedInPlayerIndex / rowsPerPage) + 1;
+
     const paginatedPlayers = sortedPlayers.slice(start, end);
-    paginatedPlayers.forEach((player, index) => player.overallrank = (sortDir === 'asc' ? start + index + 1 : allUsers.length - start - index));
+    paginatedPlayers.forEach((player, index) => player.overallrank = (sortDir === 'asc' ? allUsers.length - start - index : start + index + 1));
 
     setPlayers(paginatedPlayers);
-  }, [page, sortBy, sortDir, allUsers]);
+
+    setMyPage(playerPage);
+    setMyRank(loggedInPlayerIndex + 1);
+
+  }, [page, sortBy, sortDir, allUsers, rowsPerPage, user]);
+
 
   useEffect(() => {
     const golds = players.map(player => toLocale(player.gold, user?.locale));
     setFormattedGolds(golds);
   }, [players, user?.locale]);
 
+  useEffect(() => {
+    setAttackRangeMax(user?.attackRange.max);
+    setAttackRangeMin(user?.attackRange.min);
+  }, [user?.attackRange]);
+
   const handleSort = (newSortBy) => {
     const newSortDir = sortBy === newSortBy && sortDir === 'desc' ? 'asc' : 'desc';
     setSortBy(newSortBy);
     setSortDir(newSortDir);
     setPage(1);
-    router.push(`?sortBy=${newSortBy}&sortDir=${newSortDir}&page=1`);
   };
 
   useEffect(() => {
-    const loggedInPlayerIndex = allUsers.findIndex((player) => player.id === user?.id);
-    if (loggedInPlayerIndex !== -1 && !searchParams.get('page') && !searchParams.get('sortBy') && !searchParams.get('sortDir')) {
-      const newPage = Math.floor(loggedInPlayerIndex / ROWS_PER_PAGE) + 1;
-      setPage(newPage);
-      router.push(`?page=${newPage}&sortBy=${sortBy}&sortDir=${sortDir}`);
+    if(user){
+      if (!hasSetPageInitially) {
+        const pageParam = searchParams.get('page');
+        const sortByParam = searchParams.get('sortBy');
+        const sortDirParam = searchParams.get('sortDir');
+
+        if (!pageParam && !sortByParam && !sortDirParam) {
+          const loggedInPlayerIndex = allUsers.findIndex((player) => player.id === user?.id);
+          
+          if (loggedInPlayerIndex !== -1) {
+            const newPage = Math.floor(loggedInPlayerIndex / rowsPerPage) + 1;
+            setPage(newPage);
+          }
+        } else {
+          const initialPage = parseInt(pageParam) || 1;
+          setPage(initialPage);
+          setSortBy(sortByParam || 'level');
+          setSortDir(sortDirParam || 'asc');
+        }
+
+        // Mark the initial setting as complete
+        setHasSetPageInitially(true);
+      }
     }
-  }, [user, allUsers, sortBy, sortDir, router, searchParams]);
+  }, [user, allUsers, searchParams, rowsPerPage, hasSetPageInitially]);
+
+  const handleRowsPerPageChange = (newRowsPerPage) => {
+    setRowsPerPage(newRowsPerPage);
+    
+    setPage(1);
+  };
 
   return (
-    <div className="mainArea pb-10">
-      <h2 className="page-title">Attack</h2>
+    <MainArea title="Attack Users">
+      <Center><p>You can attack players from levels {attackRangeMin} to {attackRangeMax}</p></Center>
+      <div className="mt-4 flex justify-between mb-2">
+        <button
+          className="rounded bg-blue-500 px-4 py-2 font-bold text-white hover:bg-blue-700"
+          onClick={() => {
+            const newPage = Math.max(page - 1, 1);
+            setPage(newPage);
+          }}
+          disabled={page == 1}
+        >
+          Previous
+        </button>
+        <Pagination
+          total={lastPage}
+          siblings={1}
+          value={page}
+          defaultValue={page}
+          onChange={(xval) => { setPage(xval); pagination.setPage(xval); }}
+        />
+
+        <button
+          className="rounded bg-blue-500 px-4 py-2 font-bold text-white hover:bg-blue-700"
+          onClick={() => {
+            const newPage = page + 1;
+            setPage(newPage);
+          }}
+          disabled={players.length < rowsPerPage}
+        >
+          Next
+        </button>
+      </div>
       <div className="overflow-x-auto">
+        <Group  className="mb-2">
+          <Pill size='lg'>
+            <Text>
+              Sorted By: {sortBy.charAt(0).toUpperCase() + sortBy.slice(1)}
+            </Text>
+          </Pill>
+
+          <Pill size='lg'>
+            <Text>
+              Your {getRankLabel()}: {myRank}
+            </Text>
+          </Pill>
+          <Pill
+            onClick={() => setPage(myPage)}
+            disabled={myPage === page}
+            size='lg'
+            bg={myPage === page ? theme.colors.gray : theme.colors.brand[8]}
+            onMouseOver={(e) => e.currentTarget.style.cursor = myPage !== page ? 'pointer' : 'default'}
+          >
+            Go to My Rank
+          </Pill>
+        </Group>
+        </div>
+      <div className="overflow-x-auto">
+        <Group>
+          <Text size="sm">Show per page: </Text>
+          {[10, 20, 50, 100].map(option => (
+            <Text
+              key={option}
+              size="sm"
+              c={rowsPerPage === option ? 'dimmed' : 'white'}
+              className='cursor-pointer'
+              onClick={() => handleRowsPerPageChange(option)}
+            >
+              {option}
+            </Text>
+          ))}
+        </Group>
         <Table.ScrollContainer minWidth={400}>
-          <Table verticalSpacing={"sm"} striped highlightOnHover className="bg-gray-900 text-white text-left">
+          <Table verticalgap={"sm"} striped highlightOnHover className="bg-gray-900 text-white text-left">
             <Table.Thead>
               <Table.Tr>
-                <Table.Th className="px-1 py-1"><button onClick={() => handleSort('overallrank')}>Rank</button></Table.Th>
+                <Table.Th className="px-1 py-1" style={{ width: '100px' }}>{getRankLabel()}</Table.Th>
                 <Table.Th className="px-4 py-2">Username</Table.Th>
                 <Table.Th className="px-4 py-2"><button onClick={() => handleSort('gold')}>Gold {sortBy === 'gold' && (sortDir === 'asc' ? ' ↑' : ' ↓')}</button></Table.Th>
                 <Table.Th className="px-4 py-2"><button onClick={() => handleSort('population')}> Population {sortBy === 'population' && (sortDir === 'asc' ? ' ↑' : ' ↓')}</button></Table.Th>
@@ -83,7 +212,7 @@ const Users = ({ allUsers }: InferGetServerSidePropsType<typeof getServerSidePro
             </Table.Thead>
             <Table.Tbody>
               {players.map((nplayer, index) => {
-                const player = new UserModel(nplayer);
+                const player = new UserModel(nplayer, true, false);
                 if (player.id === user?.id) player.is_player = true;
                 return (
                   <Table.Tr
@@ -121,7 +250,7 @@ const Users = ({ allUsers }: InferGetServerSidePropsType<typeof getServerSidePro
                       </Group>
                     </Table.Td>
                     <Table.Td className="px-4 py-2">{toLocale(formattedGolds[index])}</Table.Td>
-                    <Table.Td className="px-4 py-2">{toLocale(player.population)}</Table.Td>
+                    <Table.Td className="px-4 py-2">{toLocale(nplayer.population)}</Table.Td>
                     <Table.Td className="px-4 py-2">{player.level}</Table.Td>
                   </Table.Tr>
                 );
@@ -136,44 +265,87 @@ const Users = ({ allUsers }: InferGetServerSidePropsType<typeof getServerSidePro
           onClick={() => {
             const newPage = Math.max(page - 1, 1);
             setPage(newPage);
-            router.push(`?page=${newPage}&sortBy=${sortBy}&sortDir=${sortDir}`);
           }}
           disabled={page == 1}
         >
           Previous
         </button>
+
+        <Pagination total={lastPage} siblings={1} value={page} defaultValue={page} onChange={setPage} />
+
         <button
           className="rounded bg-blue-500 px-4 py-2 font-bold text-white hover:bg-blue-700"
           onClick={() => {
             const newPage = page + 1;
             setPage(newPage);
-            router.push(`?page=${newPage}&sortBy=${sortBy}&sortDir=${sortDir}`);
           }}
-          disabled={players.length < ROWS_PER_PAGE}
+          disabled={players.length < rowsPerPage}
         >
           Next
         </button>
       </div>
-    </div>
+
+
+    </MainArea>
   );
 };
 
 
 export const getServerSideProps = async () => {
   try {
-    let allUsers = await prisma.users.findMany({ where: { AND: [{ id: { not: 0 } }, { last_active: { not: null } }] } } );
-    allUsers.forEach(user => {
+    let allUsers = await prisma.users.findMany({
+      where: {
+        AND: [
+          { id: { not: 0 } },
+          { last_active: { not: null } },
+        ],
+      },
+      select: { 
+        id: true,
+        display_name: true,
+        rank: true,
+        last_active: true,
+        avatar: true,
+        units: true,
+        gold: true,
+        race: true,
+        class: true,
+        experience: true,
+        statusHistories: {
+          orderBy: { created_at: 'desc' },
+          take: 1, // Take only the most recent status
+        },
+      },
+    });
+    const sanitizedUsers = allUsers
+      .filter(user => user.statusHistories[0]?.status === 'ACTIVE')
+      .map(user => {
       const nowdate = new Date();
       const lastActiveTimestamp = new Date(user.last_active).getTime();
       const nowTimestamp = nowdate.getTime();
       const population = user.units.reduce((acc, unit) => acc + unit.quantity, 0);
-      user.population = population;
-      user.isOnline = ((nowTimestamp - lastActiveTimestamp) / (1000 * 60) <= 15);
+
+      // remove the units so there's no leakage of data
+      return {
+        id: user.id,
+        display_name: user.display_name,
+        rank: user.rank,
+        last_active: user.last_active.toISOString(),
+        avatar: user.avatar,
+        gold: user.gold.toString(),
+        race: user.race,
+        class: user.class,
+        experience: user.experience,
+        population: population,
+        isOnline: ((nowTimestamp - lastActiveTimestamp) / (1000 * 60) <= 15),
+        
+      };
     });
-    allUsers.sort((a, b) => a.rank - b.rank);
-    return { props: { allUsers } };
+
+    sanitizedUsers.sort((a, b) => a.rank - b.rank);
+    return { props: { allUsers: sanitizedUsers } };
   } catch (error) {
-    console.error('Error fetching user data:', error);
+    logError('Error fetching user data:', error);
     return { props: { allUsers: [] } };
   }
 };

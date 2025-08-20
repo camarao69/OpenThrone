@@ -37,11 +37,11 @@ export default async function handler(
     const uModel = new UserModel(user, false);
 
     const resetToken = generateRandomString(6);
-    console.log(resetToken);
     const existingReset = await prisma.passwordReset.findMany({
       where: {
         userId: uModel.id,
-        status: 0
+        status: 0,
+        type: "PASSWORD",
       },
     });
     console.log('existingReset', existingReset)
@@ -59,6 +59,7 @@ export default async function handler(
       data: {
         userId: parseInt(uModel.id.toString()),
         verificationCode: resetToken,
+        type: 'PASSWORD',
       },
     });
 

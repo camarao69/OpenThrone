@@ -10,6 +10,7 @@ import React, {
 import { IMetaProps } from '@/types/typings';
 
 import { useUser } from './users';
+import { logDebug } from '@/utils/logger';
 
 // Define interfaces for typing
 interface RaceColors {
@@ -34,6 +35,9 @@ interface LayoutContextProps {
   setMeta?: (meta: { title?: string; description?: string }) => void;
   raceClasses: RaceColors;
   meta: { title: string; description: string };
+  updateOptions?: () => void;
+  authorized: boolean;
+  userLoading: boolean; // Add the userLoading state prop
 }
 
 // Function to generate color classes based on race
@@ -74,6 +78,8 @@ const defaultLayoutContextProps: LayoutContextProps = {
   description: undefined,
   setMeta: undefined,
   meta: { title: '', description: '' },
+  authorized: false,
+  userLoading: true,
 };
 
 // Create Context with default value
@@ -91,17 +97,19 @@ interface LayoutProviderProps {
 // LayoutProvider Component
 export const LayoutProvider: React.FC<LayoutProviderProps> = ({ children }) => {
   const [meta, setMetaState] = useState({ title: '', description: '' });
-  const { user } = useUser();
+  const { user, loading: userLoading } = useUser(); // Access user and loading state from useUser
+
+  const [authorized, setAuthorized] = useState(false);
   const [derivedRaceClasses, setDerivedRaceClasses] = useState<RaceColors>(
     raceClasses.ELF
   );
 
   const setMeta = useCallback((newMeta: { title?: string; description?: string }) => {
-      setMetaState((prevMeta) => ({
-        ...prevMeta,
-        ...newMeta,
-      }));
-    }, [setMetaState]);
+    setMetaState((prevMeta) => ({
+      ...prevMeta,
+      ...newMeta,
+    }));
+  }, [setMetaState]);
 
   const updateOptions = useCallback(() => {
     let race = user?.colorScheme || user?.race || 'ELF';
@@ -109,7 +117,16 @@ export const LayoutProvider: React.FC<LayoutProviderProps> = ({ children }) => {
     if (!Object.prototype.hasOwnProperty.call(raceClasses, race)) {
       race = 'ELF'; // Default to 'ELF' if race is not a valid key
     }
+    logDebug('settings Derived Race Classes', race, raceClasses[race as keyof typeof raceClasses]);
     setDerivedRaceClasses(raceClasses[race as keyof typeof raceClasses]);
+  }, [user]);
+
+  useEffect(() => {
+    if (user) {
+      setAuthorized(true);
+    } else {
+      setAuthorized(false);
+    }
   }, [user]);
 
   useEffect(() => {
@@ -122,9 +139,11 @@ export const LayoutProvider: React.FC<LayoutProviderProps> = ({ children }) => {
       setMeta,
       raceClasses: derivedRaceClasses,
       updateOptions,
-      meta
+      meta,
+      authorized,
+      userLoading // Pass the loading prop to the context
     }),
-    [meta, setMeta, derivedRaceClasses, updateOptions]
+    [meta, setMeta, derivedRaceClasses, updateOptions, authorized, userLoading]
   );
 
   return (

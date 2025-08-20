@@ -5,11 +5,12 @@ import { useState } from 'react';
 import { getSession } from 'next-auth/react';
 import prisma from '@/lib/prisma';
 import { Button, Modal, Space, Textarea, TextInput } from '@mantine/core';
-import Error from 'next/error';
 import { InferGetServerSidePropsType } from "next";
 import BlogPost from '@/components/blogPost';
+import { serializeDates } from '@/utils/utilities';
+import MainArea from '@/components/MainArea';
 
-const News = ({ posts: serverPosts, loggedIn, userId }: InferGetServerSidePropsType<typeof getServerSideProps>) => {
+const News = ({ posts: serverPosts, loggedIn, userId = 0 }: InferGetServerSidePropsType<typeof getServerSideProps>) => {
   const [posts, setPosts] = useState(serverPosts.map(post => ({ ...post })).sort((a, b) => b.created_timestamp - a.created_timestamp));
   const [modalIsOpen, setModalIsOpen] = useState(false);
   const [newPost, setNewPost] = useState({ title: '', content: '' });
@@ -43,7 +44,7 @@ const News = ({ posts: serverPosts, loggedIn, userId }: InferGetServerSidePropsT
       const data = await response.json();
       console.log('Success:', data);
     } catch (error) {
-      console.error('Error updating read status:', error);
+      logError('Error updating read status:', error);
 
       // Revert the UI in case of error
       setPosts(posts.map(post => {
@@ -74,13 +75,12 @@ const News = ({ posts: serverPosts, loggedIn, userId }: InferGetServerSidePropsT
       setModalIsOpen(false);
       setNewPost({ title: '', content: '' });
     } catch (error) {
-      console.error('Error creating new post:', error);
+      logError('Error creating new post:', error);
     }
   };
 
   return (
-    <div className="mainArea pb-10">
-      <h2 className="page-title">News</h2>
+    <MainArea title="News">
       {loggedIn && userId === 1 && (
         <Button onClick={() => setModalIsOpen(true)}>
           Post New
@@ -112,7 +112,7 @@ const News = ({ posts: serverPosts, loggedIn, userId }: InferGetServerSidePropsT
           <Button type="button" className="mt-2" variant="outline" onClick={() => setModalIsOpen(false)}>Cancel</Button>
         </form>
       </Modal>
-    </div>
+    </MainArea>
   );
 };
 
@@ -146,18 +146,18 @@ export const getServerSideProps = async (context) => {
       return {
         ...post,
         isRead: readStatus,
-        lastReadAt: readStatus ? post.postReadStatus[0].last_read_at : null,
       };
     });
     return {
-      props: { posts: postsWithReadStatus, loggedIn: true, userId},
+      props: { posts: postsWithReadStatus.map(post => serializeDates(post)), loggedIn: true, userId},
     };
   } 
   // Fetch posts without the read status
   posts = await prisma.blog_posts.findMany();
   
   return {
-    props: { posts, loggedIn: false },
+    props: {
+      posts: posts.map(post => serializeDates(post)), loggedIn: false },
   };
 };
 

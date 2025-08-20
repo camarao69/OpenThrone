@@ -1,5 +1,4 @@
 import React, { useEffect, useState, useCallback } from "react";
-import Alert from "@/components/alert";
 import { raceClasses, useLayout } from "@/context/LayoutContext";
 import { useUser } from "@/context/users";
 import { alertService } from "@/services";
@@ -17,9 +16,10 @@ import {
   Text,
   Grid
 } from "@mantine/core";
-import { useDisclosure, useDebouncedValue } from "@mantine/hooks";
+import { useDisclosure, useDebouncedValue, useLocalStorage } from "@mantine/hooks";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus, faMinus } from "@fortawesome/free-solid-svg-icons";
+import MainArea from "@/components/MainArea";
 
 const Settings = (props) => {
   const locales: Locales[] = ["en-US", "es-ES"];
@@ -29,14 +29,18 @@ const Settings = (props) => {
   const [confirmPassword, setConfirmPassword] = useState("");
   const { user, forceUpdate } = useUser();
   const { updateOptions } = useLayout();
-  const [colorScheme, setColorScheme] = useState(user?.colorScheme || "UNDEAD");
+  const [colorScheme, setColorScheme] = useState(user?.colorScheme || "ELF");
   const [locale, setLocale] = useState(user?.locale || "en-US");
+  const [userEmail, setUserEmail] = useState(user?.email || "");
   const [passwordsMatch, setPasswordsMatch] = useState(true);
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [isVacationModalOpen, setIsVacationModalOpen] = useState(false);
   const [resetPassword, setResetPassword] = useState("");
   const [opened, { toggle }] = useDisclosure(false);
   const [debouncedNewPassword] = useDebouncedValue(newPassword, 300);
   const [debouncedConfirmPassword] = useDebouncedValue(confirmPassword, 300);
+  const [newEmail, setNewEmail] = useState("");
+  const [debouncedEmail] = useDebouncedValue(newEmail, 300);
 
   const checkPasswordsMatch = useCallback(() => {
     setPasswordsMatch(debouncedNewPassword === debouncedConfirmPassword);
@@ -46,8 +50,9 @@ const Settings = (props) => {
     if (user) {
       setColorScheme(user.colorScheme);
       setLocale(user.locale);
+      setUserEmail(user.email);
     }
-  }, [user]);
+  }, [setColorScheme, setLocale, user]);
 
   useEffect(() => {
     checkPasswordsMatch();
@@ -79,6 +84,28 @@ const Settings = (props) => {
     }
   };
 
+  const updateEmail = async () => {
+    const response = await fetch("/api/account/emailChange", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ newEmail, userEmail }),
+    });
+
+    const data = await response.json();
+    // Handle the response
+    if (response.ok) {
+      alertService.success(
+        "Email request sent successfully. Follow the instructions in the email to complete the process."
+      );
+      //forceUpdate();
+      updateOptions();
+    } else {
+      alertService.error(data.error);
+    }
+  }
+
   const updateLocale = async () => {
     const response = await fetch("/api/account/settings", {
       method: "POST",
@@ -104,6 +131,25 @@ const Settings = (props) => {
     }
   };
 
+  const handleVacationMode = async () => {
+    const response = await fetch("/api/account/start-vacation", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({}),
+    });
+    const data = await response.json();
+    // Handle the response
+    if (response.ok) {
+      alertService.success("Vacation mode started successfully.");
+      forceUpdate();
+    } else {
+      alertService.error(data.error);
+    }
+    setIsVacationModalOpen(false);
+  }
+
   const handleResetAccount = async () => {
     const response = await fetch("/api/account/resetAccount", {
       method: "POST",
@@ -125,19 +171,7 @@ const Settings = (props) => {
   };
 
   return (
-    <div className="mainArea pb-10">
-      <Text
-        style={{
-          background: 'linear-gradient(360deg, orange, darkorange)',
-          WebkitBackgroundClip: 'text',
-          WebkitTextFillColor: 'transparent',
-          fontSize: '1.5rem',
-          fontWeight: 'bold',
-        }}
-      >
-        Settings
-      </Text>
-      <Alert />
+    <MainArea title="Settings">
       <Grid gutter="lg">
         <Grid.Col span={6}>
           <Card shadow="sm" padding="lg" style={{ backgroundColor: '#1A1B1E' }}>
@@ -162,7 +196,7 @@ const Settings = (props) => {
             />
             {!passwordsMatch && (
               <Text color="red" size="xs">
-                Passwords don't match.
+                Passwords don&apos;t match.
               </Text>
             )}
               <Space h="md" />
@@ -211,7 +245,44 @@ const Settings = (props) => {
 
         <Grid.Col span={6}>
           <Card shadow="sm" padding="lg" style={{ backgroundColor: '#1A1B1E' }}>
-            <Group position="apart">
+            <Text size="xl" fw='bolder'>Change Email</Text>
+            <Text>Current Email</Text>
+            <Text c="dimmed" size="md">{userEmail}</Text>
+            <Text>New Email</Text>
+            <TextInput
+              value={newEmail}
+              onChange={(e) => setNewEmail(e.target.value)}
+              className={raceClasses.bgClass}
+            />
+            <Text size="sm" c="dimmed">An email confirmation will be sent out to confirm this change.</Text>
+            <Space h="md" />
+            <Button
+              className="rounded bg-blue-500 px-4 py-2 font-bold text-white hover:bg-blue-700"
+              onClick={updateEmail}
+            >
+              Save
+            </Button>
+          </Card>
+        </Grid.Col>
+        <Grid.Col span={6}>
+          <Card shadow="sm" padding="lg" style={{ backgroundColor: '#1A1B1E' }}>
+            <Text size="xl" fw='bolder'>Vacation Mode</Text>
+            <Text c="dimmed">Vacation mode allows you to temporarily disable your account.</Text>
+            <Text c="dimmed">While in vacation mode, your account will be protected from attacks.</Text>
+            <Text c="dimmed">You will not be able to perform any actions while in vacation mode.</Text>
+            <Text c="dimmed">Vacations are limited to once every quarter and last for 2 weeks.</Text>
+            <Text c="dimmed">You can end your vacation early by logging in.</Text>
+            <Button
+              className="rounded bg-blue-500 px-4 py-2 font-bold text-white hover:bg-blue-700"
+              onClick={() => setIsVacationModalOpen(true)}
+            >
+              Start Vacation
+            </Button>
+          </Card>
+        </Grid.Col>
+        <Grid.Col span={6}>
+          <Card shadow="sm" padding="lg" style={{ backgroundColor: '#1A1B1E' }}>
+            <Group>
               <Text size="xl" fw='bolder'>Reset Account</Text>
               <FontAwesomeIcon
                 icon={opened ? faMinus : faPlus}
@@ -232,6 +303,24 @@ const Settings = (props) => {
       </Grid>
 
       <Modal
+        opened={isVacationModalOpen}
+        onClose={() => setIsVacationModalOpen(false)}
+        title="Confirm Vacation Mode"
+      >
+        <div>
+          <Text>Are you sure you want to start vacation mode?</Text>
+          <Group mt="md">
+            <Button variant="outline" color="gray" onClick={() => setIsVacationModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button color="blue" onClick={handleVacationMode}>
+              Confirm Vacation
+            </Button>
+          </Group>
+        </div>
+      </Modal>
+
+      <Modal
         opened={isResetModalOpen}
         onClose={() => setIsResetModalOpen(false)}
         title="Confirm Account Reset"
@@ -245,7 +334,7 @@ const Settings = (props) => {
             placeholder="Enter your password to confirm"
             className="w-full rounded-md border p-2 mt-4"
           />
-          <Group position="right" mt="md">
+          <Group align="right" mt="md">
             <Button variant="outline" color="gray" onClick={() => setIsResetModalOpen(false)}>
               Cancel
             </Button>
@@ -255,7 +344,7 @@ const Settings = (props) => {
           </Group>
         </div>
       </Modal>
-    </div>
+    </MainArea>
   );
 
 };

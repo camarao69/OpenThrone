@@ -1,11 +1,14 @@
-import Alert from '@/components/alert';
 import NewsAccordion from '@/components/newsAccordion';
 import { useUser } from '@/context/users';
 import { toLocale } from '@/utils/numberFormatting';
 import { useEffect, useState } from 'react';
-import { Text, Card, Space, Table, Group, Center, Flex, ThemeIcon, Paper } from '@mantine/core';
+import { Text, Card, Space, Table, Group, Center, Flex, ThemeIcon, Paper, Popover } from '@mantine/core';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faUsers, faShieldAlt, faUserShield, faCoins, faLevelUpAlt, faSyncAlt, faStar, faPiggyBank, faTrophy, faMedal, faUserSecret, faCrown, faEye, faShieldVirus } from '@fortawesome/free-solid-svg-icons';
+import { faUsers, faShieldAlt, faUserShield, faCoins, faLevelUpAlt, faSyncAlt, faStar, faPiggyBank, faTrophy, faMedal, faUserSecret, faCrown, faEye, faShieldVirus, faMoneyBills } from '@fortawesome/free-solid-svg-icons';
+import MainArea from '@/components/MainArea';
+import RpgAwesomeIcon from '@/components/RpgAwesomeIcon';
+import ContentCard from '@/components/ContentCard';
+import { logError } from '@/utils/logger';
 
 const Overview = (props) => {
   const [getNews, setNews] = useState(['no news']);
@@ -14,14 +17,13 @@ const Overview = (props) => {
     const fetchNews = async () => {
       try {
         const response = await fetch('/api/blog/getRecentPosts');
-        console.log('response: ', response);
         if (!response.ok) {
           throw new Error('Network response was not ok');
         }
         const data = await response.json();
         setNews(data);
       } catch (error) {
-        console.error('Failed to fetch news:', error);
+        logError('Failed to fetch news:', error);
       }
     };
 
@@ -31,36 +33,21 @@ const Overview = (props) => {
   const { user } = useUser();
 
   return (
-    <div className="mainArea pb-10">
-      <Text
-        style={{
-          background: 'linear-gradient(360deg, orange, darkorange)',
-          WebkitBackgroundClip: 'text',
-          WebkitTextFillColor: 'transparent',
-          fontSize: '1.5rem',
-          fontWeight: 'bold',
-        }}
-      >
-        Overview
-      </Text>
-      <Space h="md" />
+    <MainArea
+      title="Overview">
       <Center>
-        <Paper w={{ sm: '100%', md: '80%' }} shadow="sm" ps="sm" pb='md' radius="md">
-          <Group position="apart" grow>
-            <Alert />
-          </Group>
-          <Space h="md" />
+        <ContentCard className="my-4" titlePosition='center' w={{ sm: '100%', md: '80%' }} variant='highlight'>
           <Center>
             <div className='hidden md:block'>
-              <Text size="lg" align="center">
+              <Text size="lg" ta="center">
                 <span className="text-white">{user?.displayName}</span> is a{user?.race === 'ELF' || user?.race === 'UNDEAD' ? 'n ' : ' '}
                 {user?.race} {user?.class}
               </Text>
             </div>
             <div className='block md:hidden'>
-              <Text size="lg" align="center">
+              <Text size="lg" ta="center">
                 <span className="text-white">{user?.displayName}</span></Text>
-              <Text size='md' align='center'>
+              <Text size='md' ta='center'>
                 {user?.race === 'ELF' || user?.race === 'UNDEAD' ? 'n ' : ' '}
                 {user?.race} {user?.class}
               </Text>
@@ -68,7 +55,7 @@ const Overview = (props) => {
           </Center>
           <Space h="md" />
           <Center>
-            <Text size="lg" align="center">
+            <Text size="lg" ta="center">
               Share this link to gain up to 25 citizens per day: {' '}
               <a
                 href={`${process.env.NEXT_PUBLIC_URL_ROOT}/recruit/${user?.recruitingLink}`}
@@ -78,7 +65,7 @@ const Overview = (props) => {
               </a>
             </Text>
           </Center>
-        </Paper>
+        </ContentCard>
       </Center>
       <Space h="md" />
       <Flex
@@ -86,17 +73,9 @@ const Overview = (props) => {
         gap="md"
         className="my-4"
       >
-        <Card shadow="sm" ps="xs" pb='md' radius="md" className="w-full">
-          <Table striped highlightOnHover verticalSpacing="md" className="text-white">
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th colSpan={2}>
-                  <Center>
-                    <Text size='md' fw={'bolder'} className='font-medieval'>Statistics</Text>
-                  </Center>
-                </Table.Th>
-              </Table.Tr>
-            </Table.Thead>
+        <ContentCard className="w-full" title="Kingdom Stats" titleSize="lg" titlePosition='center'>
+          <Table striped highlightOnHover verticalSpacing="sm" className="text-white">
+
             <Table.Tbody>
               <Table.Tr>
                 <Table.Td>
@@ -105,7 +84,7 @@ const Overview = (props) => {
                       <FontAwesomeIcon icon={faUsers} />
                     </ThemeIcon>
                     <div>
-                      <Text size="md" weight={700} color="dimmed">Population</Text>
+                      <Text size="md" fw={700} color="dimmed">Population</Text>
                       <Text>{toLocale(user?.population, user?.locale)}</Text>
                     </div>
                   </Group>
@@ -116,7 +95,7 @@ const Overview = (props) => {
                       <FontAwesomeIcon icon={faShieldAlt} />
                     </ThemeIcon>
                     <div>
-                      <Text size="md" weight={700} color="dimmed">Fort Health</Text>
+                      <Text size="md" fw={700} color="dimmed">Fort Health</Text>
                       <Text>{user?.fortHealth.current}/{user?.fortHealth.max}({user?.fortHealth.percentage}%)</Text>
                     </div>
                   </Group>
@@ -129,7 +108,7 @@ const Overview = (props) => {
                       <FontAwesomeIcon icon={faUserShield} />
                     </ThemeIcon>
                     <div>
-                      <Text size="md" weight={700} color="dimmed">Army Size</Text>
+                      <Text size="md" fw={700} color="dimmed">Army Size</Text>
                       <Text>{toLocale(user?.armySize, user?.locale)}</Text>
                     </div>
                   </Group>
@@ -140,7 +119,7 @@ const Overview = (props) => {
                       <FontAwesomeIcon icon={faCoins} />
                     </ThemeIcon>
                     <div>
-                      <Text size="md" weight={700} color="dimmed">Gold</Text>
+                      <Text size="md" fw={700} color="dimmed">Gold</Text>
                       <Text>{toLocale(user?.gold, user?.locale)}</Text>
                     </div>
                   </Group>
@@ -153,7 +132,7 @@ const Overview = (props) => {
                       <FontAwesomeIcon icon={faLevelUpAlt} />
                     </ThemeIcon>
                     <div>
-                      <Text size="md" weight={700} color="dimmed">Level</Text>
+                      <Text size="md" fw={700} color="dimmed">Level</Text>
                       <Text>{toLocale(user?.level, user?.locale)}</Text>
                     </div>
                   </Group>
@@ -164,7 +143,7 @@ const Overview = (props) => {
                       <FontAwesomeIcon icon={faSyncAlt} />
                     </ThemeIcon>
                     <div>
-                      <Text size="md" weight={700} color="dimmed">Gold Per Turn</Text>
+                      <Text size="md" fw={700} color="dimmed">Gold Per Turn</Text>
                       <Text>{toLocale(user?.goldPerTurn, user?.locale)}</Text>
                     </div>
                   </Group>
@@ -177,7 +156,7 @@ const Overview = (props) => {
                       <FontAwesomeIcon icon={faStar} />
                     </ThemeIcon>
                     <div>
-                      <Text size="md" weight={700} color="dimmed">XP to Next Level</Text>
+                      <Text size="md" fw={700} color="dimmed">XP to Next Level</Text>
                       <Text>{toLocale(user?.xpToNextLevel, user?.locale)}</Text>
                     </div>
                   </Group>
@@ -188,32 +167,179 @@ const Overview = (props) => {
                       <FontAwesomeIcon icon={faPiggyBank} />
                     </ThemeIcon>
                     <div>
-                      <Text size="md" weight={700} color="dimmed">Gold in Bank</Text>
+                      <Text size="md" fw={700} color="dimmed">Gold in Bank</Text>
                       <Text>{toLocale(user?.goldInBank, user?.locale)}</Text>
+                    </div>
+                  </Group>
+                </Table.Td>
+              </Table.Tr>
+              <Table.Tr>
+                <Table.Td>
+                  <Group wrap='nowrap'>
+                    <ThemeIcon c='white'>
+                      <FontAwesomeIcon icon={faMoneyBills} />
+                    </ThemeIcon>
+                    <div>
+                      <Text size="md" fw={700} color="dimmed">Net Worth</Text>
+                      <Text>{toLocale(user?.netWorth, user?.locale)}</Text>
                     </div>
                   </Group>
                 </Table.Td>
               </Table.Tr>
             </Table.Tbody>
           </Table>
-        </Card>
-        <Card shadow="sm" ps="md" pb='md' radius="md" className="w-full">
-          <Table striped highlightOnHover verticalSpacing="md" className="text-white">
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th colSpan={2}><Center><Text size='md' fw={'bolder'} className='font-medieval'>War Statistics</Text></Center></Table.Th>
-              </Table.Tr>
-            </Table.Thead>
+        </ContentCard>
+        <ContentCard className="w-full" title="Military Stats" titleSize="lg" titlePosition='center'>
+          <Table striped highlightOnHover verticalSpacing="sm" className="text-white">
             <Table.Tbody>
               <Table.Tr>
                 <Table.Td>
                   <Group wrap='nowrap'>
                     <ThemeIcon c='white'>
-                      <i className="ra ra-crossed-swords ra-fw" />
+                      <RpgAwesomeIcon icon="crossed-swords" fw />
                     </ThemeIcon>
                     <div>
-                      <Text size="md" weight={700} color="dimmed">Offense</Text>
-                      <Text>{user ? toLocale(user.offense) : '0'}</Text>
+                      <Text size="md" fw={700} color="dimmed">Offense</Text>
+                      <Popover width={400} position="bottom" withArrow shadow="md" opened={undefined}>
+                        <Popover.Target>
+                          <Text style={{ cursor: 'pointer', textDecoration: 'underline dotted' }}>
+                            {user ? toLocale(user.getArmyStat('OFFENSE', 2)) : '0'}
+                          </Text>
+                        </Popover.Target>
+                        <Popover.Dropdown>
+                          {user && user.getArmyStatBreakdown ? (() => {
+                            const breakdown = user.getArmyStatBreakdown('OFFENSE');
+                            if (!breakdown) return <Text>No breakdown available</Text>;
+                            const { units = [], items = [], battleUpgrades = [], bonuses = [], total, finalTotal } = breakdown;
+                            const unitsTotal = units.reduce((sum, u) => sum + (u.subtotal || 0), 0);
+                            const upgradesTotal = battleUpgrades.reduce((sum, u) => sum + (u.subtotal || 0), 0);
+                            const bonusesTotal = bonuses.reduce((sum, b) => sum + (b.bonusAmount || 0), 0);
+                            // Group items by type
+                            const itemsByType = items.reduce((acc, item) => {
+                              if (!acc[item.type]) acc[item.type] = [];
+                              acc[item.type].push(item);
+                              return acc;
+                            }, {});
+                            const itemsTotal = items.reduce((sum, i) => sum + (i.subtotal || 0), 0);
+                            return (
+                              <div style={{ maxHeight: 350, overflowY: 'auto' }}>
+                                <strong>Offense Breakdown</strong>
+                                {/* Units Table */}
+                                {units.length > 0 && <>
+                                  <Text mt="xs" mb={2} fw={700}>Units</Text>
+                                  <Table withColumnBorders striped highlightOnHover verticalSpacing="xs" mb="xs">
+                                    <Table.Thead>
+                                      <Table.Tr>
+                                        <Table.Th>Name</Table.Th>
+                                        <Table.Th>Quantity</Table.Th>
+                                        <Table.Th>Bonus/ea</Table.Th>
+                                        <Table.Th>Subtotal</Table.Th>
+                                      </Table.Tr>
+                                    </Table.Thead>
+                                    <Table.Tbody>
+                                      {units.map((u, i) => (
+                                        <Table.Tr key={`unit-${i}`}>
+                                          <Table.Td>{u.name}</Table.Td>
+                                          <Table.Td>{u.quantity}</Table.Td>
+                                          <Table.Td>{u.bonus}</Table.Td>
+                                          <Table.Td>{toLocale(u.subtotal)}</Table.Td>
+                                        </Table.Tr>
+                                      ))}
+                                    </Table.Tbody>
+                                  </Table>
+                                </>}
+                                {/* Items Tables by Type */}
+                                {Object.keys(itemsByType).length > 0 && <>
+                                  <Text mt="xs" mb={2} fw={700}>Items</Text>
+                                  {Object.entries(itemsByType).map(([type, itemsArr]) => (
+                                    <div key={type} style={{ marginBottom: 8 }}>
+                                      <Text size="sm" fw={600} mb={2}>{type}</Text>
+                                      <Table withColumnBorders striped highlightOnHover verticalSpacing="xs" mb="xs">
+                                        <Table.Thead>
+                                          <Table.Tr>
+                                            <Table.Th>Name</Table.Th>
+                                            <Table.Th>Quantity</Table.Th>
+                                            <Table.Th>Bonus/ea</Table.Th>
+                                            <Table.Th>Subtotal</Table.Th>
+                                          </Table.Tr>
+                                        </Table.Thead>
+                                        <Table.Tbody>
+                                          {itemsArr.map((it, i) => (
+                                            <Table.Tr key={`item-${type}-${i}`}>
+                                              <Table.Td>{it.name}</Table.Td>
+                                              <Table.Td>{it.quantity}</Table.Td>
+                                              <Table.Td>{it.bonus}</Table.Td>
+                                              <Table.Td>{toLocale(it.subtotal)}</Table.Td>
+                                            </Table.Tr>
+                                          ))}
+                                        </Table.Tbody>
+                                      </Table>
+                                    </div>
+                                  ))}
+                                </>}
+                                {/* Upgrades Table */}
+                                {battleUpgrades.length > 0 && <>
+                                  <Text mt="xs" mb={2} fw={700}>Upgrades</Text>
+                                  <Table withColumnBorders striped highlightOnHover verticalSpacing="xs" mb="xs">
+                                    <Table.Thead>
+                                      <Table.Tr>
+                                        <Table.Th>Name</Table.Th>
+                                        <Table.Th>Bonus</Table.Th>
+                                        <Table.Th>Subtotal</Table.Th>
+                                      </Table.Tr>
+                                    </Table.Thead>
+                                    <Table.Tbody>
+                                      {battleUpgrades.map((up, i) => (
+                                        <Table.Tr key={`upgrade-${i}`}>
+                                          <Table.Td>{up.name}</Table.Td>
+                                          <Table.Td>{up.bonus}</Table.Td>
+                                          <Table.Td>{toLocale(up.subtotal)}</Table.Td>
+                                        </Table.Tr>
+                                      ))}
+                                    </Table.Tbody>
+                                  </Table>
+                                </>}
+                                {/* Bonuses Table */}
+                                {bonuses.length > 0 && <>
+                                  <Text mt="xs" mb={2} fw={700}>Bonuses</Text>
+                                  <Table withColumnBorders striped highlightOnHover verticalSpacing="xs" mb="xs">
+                                    <Table.Thead>
+                                      <Table.Tr>
+                                        <Table.Th>Name</Table.Th>
+                                        <Table.Th>Percent</Table.Th>
+                                        <Table.Th>Applied To</Table.Th>
+                                        <Table.Th>Bonus Amount</Table.Th>
+                                      </Table.Tr>
+                                    </Table.Thead>
+                                    <Table.Tbody>
+                                      {bonuses.map((b, i) => (
+                                        <Table.Tr key={`bonus-${i}`}>
+                                          <Table.Td>{b.name}</Table.Td>
+                                          <Table.Td>{b.percent ? `+${b.percent}%` : ''}</Table.Td>
+                                          <Table.Td>{b.appliedTo ? toLocale(b.appliedTo) : ''}</Table.Td>
+                                          <Table.Td>{toLocale(b.bonusAmount)}</Table.Td>
+                                        </Table.Tr>
+                                      ))}
+                                    </Table.Tbody>
+                                  </Table>
+                                </>}
+                                {/* Equation */}
+                                <div style={{ fontSize: 13, marginTop: 8 }}>
+                                  <strong>Equation:</strong><br />
+                                  ({toLocale(unitsTotal)} units
+                                  {itemsTotal ? ` + ${toLocale(itemsTotal)} items` : ''}
+                                  {upgradesTotal ? ` + ${toLocale(upgradesTotal)} upgrades` : ''}
+                                  )
+                                  {bonusesTotal ? ` + ${toLocale(bonusesTotal)} bonuses` : ''}
+                                  = <strong>{toLocale(finalTotal)}</strong>
+                                </div>
+                              </div>
+                            );
+                          })() : (
+                            <Text>No breakdown available</Text>
+                          )}
+                        </Popover.Dropdown>
+                      </Popover>
                     </div>
                   </Group>
                 </Table.Td>
@@ -223,7 +349,7 @@ const Overview = (props) => {
                       <FontAwesomeIcon icon={faTrophy} />
                     </ThemeIcon>
                     <div>
-                      <Text size="md" weight={700} color="dimmed">Attacks Won</Text>
+                      <Text size="md" fw={700} color="dimmed">Attacks Won</Text>
                       
                         <Text>{user ? toLocale(user?.statistics('OFFENSE', 'WON')) : '0'}
                         {' '}/ {user ? user?.statistics('OFFENSE', 'WON') + user?.statistics('OFFENSE', 'LOST') : '0'}
@@ -240,7 +366,7 @@ const Overview = (props) => {
                       <FontAwesomeIcon icon={faShieldAlt} />
                     </ThemeIcon>
                     <div>
-                      <Text size="md" weight={700} color="dimmed">Defense</Text>
+                      <Text size="md" fw={700} color="dimmed">Defense</Text>
                       <Text>{toLocale(user?.defense)}</Text>
                     </div>
                   </Group>
@@ -251,7 +377,7 @@ const Overview = (props) => {
                       <FontAwesomeIcon icon={faMedal} />
                     </ThemeIcon>
                     <div>
-                      <Text size="md" weight={700} color="dimmed">Defends Won</Text>
+                      <Text size="md" fw={700} color="dimmed">Defends Won</Text>
                       <Text>{toLocale(user?.statistics('DEFENSE', 'WON'))}</Text>
                     </div>
                   </Group>
@@ -264,7 +390,7 @@ const Overview = (props) => {
                       <FontAwesomeIcon icon={faUserSecret} />
                     </ThemeIcon>
                     <div>
-                      <Text size="md" weight={700} color="dimmed">Spy Offense</Text>
+                      <Text size="md" fw={700} color="dimmed">Spy Offense</Text>
                       <Text>{toLocale(user?.spy)}</Text>
                     </div>
                   </Group>
@@ -275,7 +401,7 @@ const Overview = (props) => {
                       <FontAwesomeIcon icon={faCrown} />
                     </ThemeIcon>
                     <div>
-                      <Text size="md" weight={700} color="dimmed">Spy Victories</Text>
+                      <Text size="md" fw={700} color="dimmed">Spy Victories</Text>
                       <Text>{toLocale(user?.statistics('SPY', 'WON'))}{' '}/ {user ? user.statistics('SPY', 'WON') + user.statistics('SPY', 'LOST') : '0'}</Text>
                     </div>
                   </Group>
@@ -288,7 +414,7 @@ const Overview = (props) => {
                       <FontAwesomeIcon icon={faEye} />
                     </ThemeIcon>
                     <div>
-                      <Text size="md" weight={700} color="dimmed">Spy Defense</Text>
+                      <Text size="md" fw={700} color="dimmed">Spy Defense</Text>
                       <Text>{toLocale(user?.sentry)}</Text>
                     </div>
                   </Group>
@@ -299,7 +425,7 @@ const Overview = (props) => {
                       <FontAwesomeIcon icon={faShieldVirus} />
                     </ThemeIcon>
                     <div>
-                      <Text size="md" weight={700} color="dimmed">Sentry Victories</Text>
+                      <Text size="md" fw={700} color="dimmed">Sentry Victories</Text>
                       <Text>{toLocale(user?.statistics('SENTRY', 'WON'))}</Text>
                     </div>
                   </Group>
@@ -307,12 +433,12 @@ const Overview = (props) => {
               </Table.Tr>
             </Table.Tbody>
           </Table>
-        </Card>
+        </ContentCard>
       </Flex>
-      <Text size="xl" weight={700} align="center">Recent News</Text>
-      <Space h="md" />
-      <NewsAccordion news={getNews} />
-    </div>
+      <ContentCard className="my-4" title="Kingdom News" titleSize="lg" titlePosition='center'>
+        <NewsAccordion news={getNews} />
+      </ContentCard>
+    </MainArea>
   );
 };
 

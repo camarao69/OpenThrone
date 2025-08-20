@@ -1,49 +1,53 @@
-import { AnimatePresence, motion } from 'framer-motion';
-import { getSession, useSession } from 'next-auth/react';
+import { getServerSession } from 'next-auth';
 import prisma from '@/lib/prisma';
 import AttackResult from '@/components/attackResult';
 import IntelResult from '@/components/IntelResult';
 import AssassinateResult from '@/components/AssassinateResult';
-import { InferGetStaticPropsType } from "next";
-import { useRouter } from 'next/router';
+import InfiltrationResult from '@/components/InfiltrationResult';
+import { authOptions } from '@/pages/api/auth/[...nextauth]';
+import { InferGetServerSidePropsType } from "next";
+import { serializeDates } from '@/utils/utilities';
 
-const ResultsPage = ({ battle, lastGenerated }: InferGetStaticPropsType<typeof getStaticProps>) => {
-  const { data: session, status } = useSession();
-  const router = useRouter();
-
-  if (status === 'loading') {
-    return <p>Loading...</p>;
-  }
-
-  if (session) {
-    console.log('session', session)
-  }
-
-  if (status === 'unauthenticated') {
-    router.replace('/auth/signin');
-    return null;
+const ResultsPage = ({ battle, lastGenerated, viewerID }: InferGetServerSidePropsType<typeof getServerSideProps>) => {
+  if (!battle) {
+    return <p>You do not have permission to view this battle log.</p>;
   }
 
   return (
     <div className="mainArea pb-10">
-      <h2 className="page-title">Battle Results</h2>
+      <h2 className="page-title text-shadow text-shadow-xs">Battle Results</h2>
       {battle.type === 'attack' ? (
-        <AttackResult battle={battle} viewerID={session.user.id} />
+        <AttackResult battle={battle} viewerID={viewerID} />
       ) : battle.type === 'ASSASSINATE' ? (
-        <AssassinateResult battle={battle} viewerID={session.user.id} />
+          <AssassinateResult battle={battle} viewerID={viewerID} />
+      ) : battle.type === 'INFILTRATE' ? (
+            <InfiltrationResult battle={battle} lastGenerated={lastGenerated} viewerID={viewerID} />
       ) : (
-            <IntelResult battle={battle} viewerID={session.user.id} lastGenerated={lastGenerated} />
+              <IntelResult battle={battle} lastGenerated={lastGenerated} viewerID={viewerID} />
       )}
     </div>
   );
 };
 
-export const getStaticProps = async (context) => {
-  const { params } = context;
-  const id = parseInt(params.id, 10);
+// Server-Side Rendering with session and permission check
+export const getServerSideProps = async (context) => {
+  const session = await getServerSession(context.req, context.res, authOptions);
 
-  const results = await prisma.attack_log.findFirst({
-    where: { id },
+  if (!session) {
+    return {
+      redirect: {
+        destination: '/auth/signin',
+        permanent: false,
+      },
+    };
+  }
+
+  const { params } = context;
+  const battleId = parseInt(params.id, 10);
+
+  // Fetch the battle details first
+  const battle = await prisma.attack_log.findFirst({
+    where: { id: battleId },
     include: {
       attackerPlayer: {
         select: {
@@ -56,30 +60,75 @@ export const getStaticProps = async (context) => {
         select: {
           id: true,
           display_name: true,
-          race: true,
+          race: true
+        },
+      },
+      acl: {
+        include: {
+          shared_with_user: {
+            select: {
+              id: true,
+            },
+          },
+          shared_with_alliance: true, // If you are checking for shared alliances
         },
       },
     },
   });
 
-  return {
-    props: { battle: results, lastGenerated: new Date().toISOString() },
-    revalidate: 60, // Revalidate the page every 60 seconds
-  };
-};
+  if (!battle) {
+    return {
+      notFound: true,
+    };
+  }
 
-export const getStaticPaths = async () => {
-  const battles = await prisma.attack_log.findMany({
-    select: { id: true },
+  // Get the current user's permissions
+  const userPermissions = await prisma.permissionGrant.findMany({
+    where: {
+      user_id: session.user.id,
+    },
   });
 
-  const paths = battles.map((battle) => ({
-    params: { id: battle.id.toString() },
-  }));
+  // Check if the user has "MODERATOR" or "ADMINISTRATOR" permission
+  const isModeratorOrAdmin = userPermissions.some(
+    (perm) => perm.type === 'MODERATOR' || perm.type === 'ADMINISTRATOR'
+  );
+
+  // Check if the user is the attacker or defender
+  const isAttacker = battle.attackerPlayer.id === session.user.id;
+  const isDefender = battle.defenderPlayer.id === session.user.id;
+
+  // Check if the user is part of the ACL (Access Control List)
+  const isInACL = battle.acl.some((aclEntry) => {
+    // Check if it's shared with the user
+    if (aclEntry.shared_with_user) {
+      return aclEntry.shared_with_user.id === session.user.id;
+    }
+    // Check if it's shared with the user's alliance (if applicable)
+    if (aclEntry.shared_with_alliance) {
+      // Assuming the session holds the user's alliance id
+      return aclEntry.shared_with_alliance.id === session.user.alliance_id;
+    }
+    return false;
+  });
+
+  // Combine all permission checks
+  const hasPermission = isModeratorOrAdmin || isAttacker || isDefender || isInACL;
+
+  if (!hasPermission) {
+    return {
+      props: {
+        battle: null,
+      },
+    };
+  }
 
   return {
-    paths,
-    fallback: 'blocking', // Use 'blocking' to generate paths on-demand if not pre-rendered
+    props: {
+      battle: serializeDates(battle),
+      lastGenerated: new Date().toISOString(),
+      viewerID: session.user.id,
+    },
   };
 };
 

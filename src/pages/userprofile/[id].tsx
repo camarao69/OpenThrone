@@ -1,35 +1,78 @@
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { MDXRemote } from 'next-mdx-remote';
+import { MDXRemote, MDXRemoteSerializeResult } from 'next-mdx-remote';
 import { serialize } from 'next-mdx-remote/serialize';
 import React, { useEffect, useState } from 'react';
+import { AccountStatus } from '@prisma/client'; // Import AccountStatus
+import { JsonValue } from '@prisma/client/runtime/library'; // Import JsonValue
 
-import Alert from '@/components/alert';
 import Modal from '@/components/modal';
 import SpyMissionsModal from '@/components/spyMissionsModal';
 import { useUser } from '@/context/users';
 import prisma from '@/lib/prisma';
 import UserModel from '@/models/Users';
-import { alertService } from '@/services';
+import { alertService, getUpdatedStatus } from '@/services';
 import { Fortifications } from '@/constants';
 import toLocale from '@/utils/numberFormatting';
 import { Table, Loader, Group, Paper, Avatar, Badge, Text, Indicator, SimpleGrid, Center, Space, Flex, Container } from '@mantine/core';
 import { InferGetServerSidePropsType } from "next";
 import Image from 'next/image';
 import FriendCard from '@/components/friendCard';
+import MainArea from '@/components/MainArea';
+import { logDebug } from '@/utils/logger';
 
-interface IndexProps {
-  users: UserModel;
+interface UserProfileServerData {
+  id: number;
+  email: string;
+  display_name: string;
+  race: string;
+  class: string;
+  units: JsonValue | null;
+  experience: number;
+  gold: string;
+  gold_in_bank: string;
+  fort_level: number;
+  fort_hitpoints: number;
+  attack_turns: number;
+  last_active: string;
+  rank: number;
+  items: JsonValue | null;
+  house_level: number;
+  battle_upgrades: JsonValue | null;
+  structure_upgrades: JsonValue | null;
+  bonus_points: JsonValue | null;
+  bio: string;
+  colorScheme: string | null;
+  recruit_link: string;
+  locale: string;
+  economy_level: number;
+  avatar: string | null;
+  created_at: string;
+  updated_at: string;
+  stats: JsonValue | null;
+  killing_str: number | null;
+  defense_str: number | null;
+  spying_str: number | null;
+  sentry_str: number | null;
+  offense: number | null;
+  defense: number | null;
+  spy: number | null;
+  sentry: number | null;
+  bionew: MDXRemoteSerializeResult<Record<string, unknown>, Record<string, unknown>>;
+  status: AccountStatus | string;
 }
 
+interface IndexProps {
+  users: UserProfileServerData; // Use the new interface
+}
+
+// The component receives props matching IndexProps (which uses UserProfileServerData)
 const Index: React.FC<IndexProps> = ({ users }: InferGetServerSidePropsType<typeof getServerSideProps>) => {
   const [hideSidebar, setHideSidebar] = useState(true);
   const {user, forceUpdate} = useUser();
   const [isPlayer, setIsPlayer] = useState(false);
   const [isAPlayer, setIsAPlayer] = useState(false);
 
-  const router = useRouter();
-  const [profile, setUser] = useState<UserModel>(() => new UserModel(users, true));
+  const [profile, setUser] = useState<UserModel>(() => new UserModel(users, true, false));
   const [canAttack, setCanAttack] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [isOnline, setIsOnline] = useState(false);
@@ -37,7 +80,8 @@ const Index: React.FC<IndexProps> = ({ users }: InferGetServerSidePropsType<type
   const [friends, setFriends] = useState([]);
   const [loading, setLoading] = useState(true);
   const [composeModalOpen, setComposeModalOpen] = useState(false);
-
+  const [userStatus, setUserStatus] = useState('OFFLINE');
+  const [socialEnabled, setSocialEnabled] = useState(false);
   // State to control the Spy Missions Modal
   const [isSpyModalOpen, setIsSpyModalOpen] = useState(false);
 
@@ -48,21 +92,27 @@ const Index: React.FC<IndexProps> = ({ users }: InferGetServerSidePropsType<type
     }
   }, [user])
 
+  useEffect(() => {
+    setUserStatus(users.status);
+  }, [users]);
 
   useEffect(() => {
     fetch('/api/social/listAll?type=FRIEND&limit=5&playerId=' + profile.id)
       .then(response => response.json())
       .then(data => {
+        console.log('Friends data:', data);
         setFriends(data);
         setLoading(false);
       });
   }, [profile.id]);
+
   const toggleModal = () => {
     setIsOpen(!isOpen);
   };
+
   useEffect(() => {
-    if (profile.id !== users.id) setUser(new UserModel(users, true));
-    if (user?.id === users.id && isPlayer === false) setIsPlayer(true);
+    if (profile.id !== users.id) setUser(new UserModel(users, true, false)); // you're looking at someone else
+    if (user?.id === profile.id) setIsPlayer(true); // you're looking at yourself
     if (!isPlayer && user) setCanAttack(user.canAttack(profile.level));
     if (profile) {
       const nowdate = new Date();
@@ -75,12 +125,42 @@ const Index: React.FC<IndexProps> = ({ users }: InferGetServerSidePropsType<type
       const nowTimestamp = nowdate.getTime();
 
       setIsOnline((nowTimestamp - lastActiveTimestamp) / (1000 * 60) <= 15);
-      setLastActive(profile.last_active.toDateString());
+      setLastActive(new Date(profile.last_active).toDateString());
+    }
+    if(process.env.NEXT_PUBLIC_ENABLE_SOCIAL) {
+      setSocialEnabled(true);
     }
   }, [profile, users, user, isPlayer]);
 
   if (loading) return <Loader />;
   if (!profile) return <p>User not found</p>;
+
+  // Show status message for blocked statuses
+  const blockedStatuses = ["IDLE", "BANNED", "SUSPENDED", "CLOSED", "TIMEOUT"];
+  if (blockedStatuses.includes(userStatus)) {
+    let statusMessage = "";
+    switch (userStatus) {
+      case "IDLE":
+        statusMessage = "This account is currently idle.";
+        break;
+      case "BANNED":
+        statusMessage = "This account has been banned.";
+        break;
+      case "SUSPENDED":
+        statusMessage = "This account is suspended.";
+        break;
+      case "CLOSED":
+        statusMessage = "This account has been closed.";
+        break;
+      case "TIMEOUT":
+        statusMessage = "This account is in timeout.";
+        break;
+      default:
+        statusMessage = "This account is unavailable.";
+    }
+    return <p>{statusMessage}</p>;
+  }
+
   if (lastActive === 'Never logged in') return <p>User is currently inactive</p>;
 
   const handleAddFriend = async () => {
@@ -148,41 +228,19 @@ const Index: React.FC<IndexProps> = ({ users }: InferGetServerSidePropsType<type
     setIsSpyModalOpen(!isSpyModalOpen);
   };
 
-  const handleSubmit = async (turns: number) => {
-    if (!turns) turns = 1;
-    const res = await fetch(`/api/attack/${profile.id}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ turns }),
-    });
-    const results = await res.json();
+  // Don't show friend buttons on own profile, and only show Add/Remove appropriately
+  const isOwnProfile = user?.id === profile.id;
+  const isFriend = friends.some(friend => friend.friend.id === user?.id);
 
-    if (results.status === 'failed') {
-      alertService.error(results.status);
-    } else {
-      forceUpdate();
-      router.push(`/battle/results/${results.attack_log}`);
-      toggleModal();
-    }
-  };
-
-  const isFriend = friends.some(friend => friend.friend.id === profile.id);
   const friendsList = friends.length > 0 ? friends.map(friend => {
-    const player = new UserModel(friend.friend);
+    logDebug("Received friend info:", friend);
+    const player = new UserModel(friend.friend, true, false);
     return (
       <FriendCard key={player.id} player={player} />
     );
   }) : <p>No friends found.</p>;
   return (
-    <div className="mainArea pb-10">
-      <h2 className="page-title">{profile?.displayName}</h2>
-
-      <div className="my-5 flex justify-between">
-        <Alert />
-      </div>
-
+    <MainArea title={profile?.displayName}>
       <Container className="container mx-auto">
         <Text className="text-center">
           <span className="text-white">{profile?.displayName}</span> is a{profile.race === 'ELF' || profile.race === 'UNDEAD' ? 'n ':' '}
@@ -228,7 +286,7 @@ const Index: React.FC<IndexProps> = ({ users }: InferGetServerSidePropsType<type
                 </div>
               ) : (
                 <div className="alert alert-error">
-                  <h6>Offline</h6>
+                  <h6>{userStatus === 'ACTIVE' ? 'OFFLINE' : userStatus}</h6>
                 </div>
               )}
             </div>
@@ -240,11 +298,12 @@ const Index: React.FC<IndexProps> = ({ users }: InferGetServerSidePropsType<type
           </SimpleGrid>
         </div>
         <div className="col-span-1">
-          {hideSidebar || isPlayer ? (
+          {hideSidebar || isPlayer || userStatus !== 'ACTIVE' ? (
             <div className="list-group mb-4">
               <Link
                 href={`/recruit/${profile?.recruitingLink}`}
                 className="list-group-item list-group-item-action"
+                style={{ display: userStatus !== 'ACTIVE' ? 'none' : 'block' }}
               >
                 Recruit this Player
               </Link>
@@ -294,13 +353,13 @@ const Index: React.FC<IndexProps> = ({ users }: InferGetServerSidePropsType<type
               >
                 Recruit this Player
                 </Link>
-                {true === false && (
+                {socialEnabled && (
                 <>
                 <button
                   type="button"
                   onClick={handleAddFriend}
                   className={`list-group-item list-group-item-action w-full text-left`}
-                  style={{ display: isFriend ? 'none' : 'block' }}
+                  style={{ display: isOwnProfile || isFriend ? 'none' : 'block' }}
                 >
                   Add to Friends List
                 </button>
@@ -308,7 +367,7 @@ const Index: React.FC<IndexProps> = ({ users }: InferGetServerSidePropsType<type
                   type="button"
                   onClick={handleRemoveFriend}
                   className={`list-group-item list-group-item-action w-full text-left`}
-                  style={{ display: isFriend ? 'block' : 'none' }}
+                  style={{ display: isOwnProfile || !isFriend ? 'none' : 'block' }}
                 >
                   Remove Friend
                 </button>
@@ -333,13 +392,13 @@ const Index: React.FC<IndexProps> = ({ users }: InferGetServerSidePropsType<type
               </button>{*/}
             </div>
           )}
-          {true === false && (
+          {socialEnabled && (
             <>
               <h6 className="border-dark text-center font-bold">
                 Top Friends
               </h6>
               <Paper shadow="sm" p="md" className="my-5">
-                <SimpleGrid cols={3} spacing={4}>
+                <SimpleGrid cols={3} gap={4}>
                   {friendsList}
                 </SimpleGrid>
               </Paper>
@@ -375,7 +434,7 @@ const Index: React.FC<IndexProps> = ({ users }: InferGetServerSidePropsType<type
           </h6>
         </div>
       </div>
-    </div>
+    </MainArea>
   );
 };
 
@@ -401,11 +460,17 @@ export const getServerSideProps = async ({ query }) => {
     return { notFound: true };
   }
 
-  const { password_hash, ...userWithoutPassword } = user;
+  const { password_hash, email, ...userWithoutPassword } = user;
 
   const userData = {
     ...userWithoutPassword, 
     bionew: await serialize(user.bio),
+    gold: user.gold.toString(),
+    gold_in_bank: user.gold_in_bank.toString(),
+    last_active: user.last_active ? user.last_active.toISOString() : null,
+    created_at: user.created_at.toISOString(),
+    updated_at: user.updated_at.toISOString(),
+    status: await getUpdatedStatus(user.id),
   };
 
   return { props: { users: userData } };

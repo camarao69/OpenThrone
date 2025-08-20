@@ -7,6 +7,7 @@ import { getSession } from 'next-auth/react';
 import { InferGetServerSidePropsType } from "next";
 import { Flex } from "@mantine/core";
 import BlogPost from "@/components/blogPost";
+import MainArea from "@/components/MainArea";
 
 const News = ({ post: serverPost, loggedIn }: InferGetServerSidePropsType<typeof getServerSideProps>) => {
   const [post, setPost] = useState({ ...serverPost });
@@ -34,7 +35,7 @@ const News = ({ post: serverPost, loggedIn }: InferGetServerSidePropsType<typeof
       const data = await response.json();
       console.log('Success:', data);
     } catch (error) {
-      console.error('Error updating read status:', error);
+      logError('Error updating read status:', error);
 
       // Revert the UI in case of error
       setPost({ ...post, isRead: !post.isRead }); // Revert the isRead status
@@ -42,10 +43,9 @@ const News = ({ post: serverPost, loggedIn }: InferGetServerSidePropsType<typeof
   };
 
   return (
-    <div className="mainArea pb-10">
-      <h2 className="page-title">News</h2>
+    <MainArea title="News">
         <BlogPost post={post} loggedIn={loggedIn} handleReadChange={handleReadChange} />
-    </div>
+    </MainArea>
   );
 };
 
